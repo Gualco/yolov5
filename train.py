@@ -35,6 +35,7 @@ from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first
 
 # logger = logging.getLogger(__name__)
+from loguru import logger
 
 from loguru import logger
 try:
@@ -144,6 +145,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         loggers = {'wandb': wandb}  # loggers dict
     else:
         logger.info("wandb is disabled")
+
     # Resume
     start_epoch, best_fitness = 0, 0.0
     if pretrained:
@@ -298,6 +300,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             # Forward
             with amp.autocast(enabled=cuda):
                 pred = model(imgs)  # forward
+                # reduce mean is done in forward
                 # logger.debug(f'train output{len(pred)}: [{len(pred[0])}, {len(pred[0][0])}, {len(pred[0][0][0])}]')
                 loss, loss_items = compute_loss(pred, targets.to(device), model)  # loss scaled by batch_size
                 # logger.debug(f'train output: {len(pred)}: [{len(pred[0])}, {len(pred[0][0])}, {len(pred[0][0][0])}]')

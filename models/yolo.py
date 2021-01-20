@@ -10,6 +10,7 @@ import torch
 import torch.nn as nn
 
 import numpy as np
+from norse.torch import SequentialState    # Stateful sequential layers
 
 sys.path.append('./')  # to run '$ python *.py' files in subdirectories
 from loguru import logger
@@ -87,6 +88,7 @@ class Model(nn.Module):
         # self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
         self.model, self.save = make_model(ch=[ch])  # model, savelist
         logger.debug(self.model)
+        logger.debug(self.model.stateful_layers)
         # logger.debug(self.model.stateful_layers)
 
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
@@ -97,7 +99,7 @@ class Model(nn.Module):
         if isinstance(m, Detect):
             s = 128  # 2x min stride
             #tried over here
-            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward_standard(torch.zeros(1, ch, s, s))])  # forward
+            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, 1, ch, s, s))])  # forward
             m.anchors /= m.stride.view(-1, 1, 1)
             check_anchor_order(m)
             self.stride = m.stride
@@ -109,25 +111,28 @@ class Model(nn.Module):
         self.info()
         logger.info('')
 
-    def forward(self, x_t:Union[int, int, int, int, int], augment=False, profile=False):
+    def forward(self, x_t:torch.tensor, augment=False, profile=False, state=None):
         # x: shape => (t, batchsize, h, w, depth)
         # output = []
         x = "torch.tensor"
+        state = [None] * len(self.model) if state is None else state
         for t in range(x_t.size(0)):
-            x = self.forward_standard(x_t[t, :, :, :, :], augment=augment, profile=profile)
+            x, state = self.forward_standard(x_t[t, :, :, :, :], augment=augment, profile=profile, state=state)
             # logger.debug(f'forward one batch{len(x)}: [{len(x[0])}, {len(x[0][0])}, {len(x[0][0][0])}]')
             # output.append(x)
 
         return x
 
-    def forward_standard(self, x, augment=False, profile=False):
+    def forward_standard(self, x, augment=False, profile=False, state=None):
         # x: shape => (batch_size, h, w, 3)
         '''
         logger.debug(f'input:{type(x)}')
         logger.debug(f'input:  {x.size()}')
         logger.debug(f'{augment}, {profile}')
         '''
+        state = [None] * len(self.model) if state is None else state
         if augment:
+            logger.critical("Is not altered to SNN")
             img_size = x.shape[-2:]  # height, width
             s = [1, 0.83, 0.67]  # scales
             f = [None, 3, None]  # flips (2-ud, 3-lr)
@@ -144,14 +149,14 @@ class Model(nn.Module):
                 y.append(yi)
             return torch.cat(y, 1), None  # augmented inference, train
         else:
-            return self.forward_once(x, profile)  # single-scale inference, train
+            return self.forward_once(x, profile, state=state)  # single-scale inference, train
 
-    def forward_once(self, x, profile=False):
+    def forward_once(self, x, profile=False, state=None):
         # x: shape => (batch_size, h, w, 3)
-        y, dt, states = [], [], []  # outputs
-        states = [None] * len(self.model)
+        y, dt = [], []  # outputs
         # logger.debug(f'input:{type(x)}')
         # logger.debug(f'input:  {x.size()}')
+        state = [None] * len(self.model) if state is None else state
         for i, m in enumerate(self.model):
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
@@ -177,7 +182,12 @@ class Model(nn.Module):
             else:
                 logger.debug(f'{x.size()}')
             '''
-            x = m(x)
+            # logger.info(f'{i} : {m.type} : {self.model.stateful_layers[i]}')
+            if self.model.stateful_layers[i]:
+                x, s = m(x, state[i])
+                state[i] = s
+            else:
+                x = m(x)
 
             y.append(x if m.i in self.save else None)  # save output
 
@@ -199,7 +209,7 @@ class Model(nn.Module):
         else:
             logger.debug(f' output not a tuple or list: {type(x)}')
         '''
-        return x
+        return x, state
 
     def _initialize_biases(self, cf=None):  # initialize biases into Detect(), cf is class frequency
         # https://arxiv.org/abs/1708.02002 section 3.3
@@ -309,11 +319,12 @@ def make_model(ch=None):
                                   [17, 20, 23],
                                   24))  # Detect(P3, P4, P5)
 
-    return nn.Sequential(*layers), sorted([6, 4, 14, 10, 17, 20, 23])
+    return SequentialState(*layers), sorted([6, 4, 14, 10, 17, 20, 23])
 
 
-def module_extender(module: callable, args: list, numberr: int, fromm: Union[int, list], i: int):
-    module_ = nn.Sequential(*[module(*args) for _ in range(numberr)]) if numberr > 1 else module(*args)  # module
+def module_extender(module: callable, args: list, numberr: int, fromm: Union[int,list], i: int):
+    module_ = SequentialState(*[module(*args) for _ in range(numberr)]) if numberr > 1 else module(*args)  # module
+
     # logger.debug(module_.stateful_layers)
     t = str(module)[8:-2].replace('__main__.', '')  # module type
     np = sum([x.numel() for x in module_.parameters()])  # number params

@@ -102,11 +102,14 @@ def test(data,
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         targets = targets.to(device)
-        nb, _, height, width = img.shape  # batch size, channels, height, width
+        nb, channels, height, width = img.shape  # batch size, channels, height, width
 
         with torch.no_grad():
             # Run model
             t = time_synchronized()
+            # the 2 lines beloaw are the same
+            # img.unsqueeze(0).repeat(5, 1, 1, 1, 1)
+            # torch.reshape(torch.cat(5*[img]), (5, nb, channels, height, width))
             #forward img time scale:
             # adds a Dimenson and repeats all others in it
             #  logger.debug(f'test input: {img.size()} {img.size(1)}')
@@ -116,6 +119,7 @@ def test(data,
             inf_out, train_out = model(img_repeated, augment=augment)  # inference and training
             # logger.debug(f'test output: {type(inf_out)}, {type(train_out)}')
             # logger.debug(f'test output: {inf_out.size()}, [{len(train_out[0])}, {len(train_out[0][0])}, {len(train_out[0][0][0])}]')
+
             t0 += time_synchronized() - t
 
             # Compute loss

@@ -18,6 +18,7 @@ from utils.metrics import ap_per_class, ConfusionMatrix
 from utils.plots import plot_images, output_to_target, plot_study_txt
 from utils.torch_utils import select_device, time_synchronized
 
+from loguru import logger
 
 def test(data,
          weights=None,
@@ -101,12 +102,14 @@ def test(data,
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         targets = targets.to(device)
-        nb, _, height, width = img.shape  # batch size, channels, height, width
+        nb, channels, height, width = img.shape  # batch size, channels, height, width
 
         with torch.no_grad():
             # Run model
             t = time_synchronized()
-            inf_out, train_out = model(img, augment=augment)  # inference and training outputs
+            outt = model(torch.reshape(torch.cat(5*[img]), (5, nb, channels, height, width)), augment=augment)  # inference and training outputs
+            logger.debug(outt.size())
+            inf_out, train_out = outt
             t0 += time_synchronized() - t
 
             # Compute loss

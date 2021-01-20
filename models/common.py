@@ -7,6 +7,14 @@ import torch
 import torch.nn as nn
 from PIL import Image, ImageDraw
 
+from typing import Union
+from loguru import logger
+
+from norse.torch import LICell             # Leaky integrator
+# from norse.torch.module.lif import LIFFeedForwardLayer # Leaky integrate-and-fire
+from norse.torch import LIFFeedForwardCell # Leaky integrate-and-fire
+from norse.torch import SequentialState    # Stateful sequential layers
+
 from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, xyxy2xywh
 from utils.plots import color_list
@@ -30,13 +38,20 @@ class Conv(nn.Module):
         super(Conv, self).__init__()
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
         self.bn = nn.BatchNorm2d(c2)
-        self.act = nn.Hardswish() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        # self.act = nn.Hardswish() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
+        self.act = LIFFeedForwardCell()
 
-    def forward(self, x):
-        return self.act(self.bn(self.conv(x)))
+    def forward(self, input_tensor: torch.Tensor, state: Union[list, None] = None):
+        logger.debug(type(self).__name__)
+        if isinstance(input_tensor, tuple):
+            state = input_tensor[1]
+            input_tensor = input_tensor[0]
 
-    def fuseforward(self, x):
-        return self.act(self.conv(x))
+        return self.act(self.bn(self.conv(input_tensor)), state)
+
+    def fuseforward(self, x, state: Union[list, None] = None):
+        logger.debug("Cffc")
+        return self.act(self.conv(x), state)
 
 
 class Bottleneck(nn.Module):
@@ -48,8 +63,16 @@ class Bottleneck(nn.Module):
         self.cv2 = Conv(c_, c2, 3, 1, g=g)
         self.add = shortcut and c1 == c2
 
-    def forward(self, x):
-        return x + self.cv2(self.cv1(x)) if self.add else self.cv2(self.cv1(x))
+    def forward(self, x, state=None):
+        logger.debug(type(self).__name__)
+        if isinstance(x, tuple):
+            state = x[1]
+            x = x[0]
+        if not isinstance(state, list):
+            state = [None] * 2
+        y1, state[0] = self.cv1(x, state[0])
+        y2, state[1] = self.cv2(y1, state[1])
+        return x + y2, state if self.add else y2, state
 
 
 class BottleneckCSP(nn.Module):
@@ -63,12 +86,24 @@ class BottleneckCSP(nn.Module):
         self.cv4 = Conv(2 * c_, c2, 1, 1)
         self.bn = nn.BatchNorm2d(2 * c_)  # applied to cat(cv2, cv3)
         self.act = nn.LeakyReLU(0.1, inplace=True)
-        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+        self.act1 = LIFFeedForwardCell()
+        self.m = SequentialState(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
 
-    def forward(self, x):
-        y1 = self.cv3(self.m(self.cv1(x)))
+    def forward(self, x, state=None):
+        logger.debug(type(self).__name__)
+        if isinstance(x, tuple):
+            state = x[1]
+            x = x[0]
+        if not isinstance(state, list):
+            state = [None] * 4
+
+        y1, state[0] = self.cv1(x,state[0])
+        y1, state[1] = self.m(y1)
+        y1 = self.cv3(y1)
         y2 = self.cv2(x)
-        return self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))))
+        y3, state[2] = self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))), state[2])
+        y3, state[3] = self.act1(y3, state[3])
+        return  y3, state
 
 
 class C3(nn.Module):
@@ -83,6 +118,7 @@ class C3(nn.Module):
         # self.m = nn.Sequential(*[CrossConv(c_, c_, 3, 1, g, 1.0, shortcut) for _ in range(n)])
 
     def forward(self, x):
+        logger.debug("c3")
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
 
 
@@ -95,9 +131,17 @@ class SPP(nn.Module):
         self.cv2 = Conv(c_ * (len(k) + 1), c2, 1, 1)
         self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
 
-    def forward(self, x):
-        x = self.cv1(x)
-        return self.cv2(torch.cat([x] + [m(x) for m in self.m], 1))
+    def forward(self, x, state=None):
+        logger.debug(type(self).__name__)
+        if isinstance(x, tuple):
+            state = x[1]
+            x = x[0]
+        if not isinstance(state, list):
+            state = [None] * 2
+        x, state[0] = self.cv1(x, state[0])
+        x, state[1] = self.cv2(torch.cat([x] + [m(x) for m in self.m], 1), state[1])
+
+        return x, state
 
 
 class Focus(nn.Module):
@@ -106,8 +150,13 @@ class Focus(nn.Module):
         super(Focus, self).__init__()
         self.conv = Conv(c1 * 4, c2, k, s, p, g, act)
 
-    def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
-        return self.conv(torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1))
+    def forward(self, x, state: Union[list, None] = None):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
+        logger.debug("focus")
+        if isinstance(x, tuple):
+            state = x[1]
+            x = x[0]
+
+        return self.conv(torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1), state)
 
 
 class Concat(nn.Module):
@@ -116,7 +165,8 @@ class Concat(nn.Module):
         super(Concat, self).__init__()
         self.d = dimension
 
-    def forward(self, x):
+    def forward(self, x, state=None):
+        logger.debug(type(self).__name__)
         return torch.cat(x, self.d)
 
 
@@ -130,6 +180,7 @@ class NMS(nn.Module):
         super(NMS, self).__init__()
 
     def forward(self, x):
+        logger.debug("nms")
         return non_max_suppression(x[0], conf_thres=self.conf, iou_thres=self.iou, classes=self.classes)
 
 

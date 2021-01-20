@@ -8,6 +8,9 @@ from pathlib import Path
 import torch
 import torch.nn as nn
 
+
+from norse.torch import SequentialState    # Stateful sequential layers
+
 sys.path.append('./')  # to run '$ python *.py' files in subdirectories
 from loguru import logger
 
@@ -265,11 +268,11 @@ def make_model(ch=None):
                                   [17, 20, 23],
                                   24))  # Detect(P3, P4, P5)
 
-    return nn.Sequential(*layers), sorted([6, 4, 14, 10, 17, 20, 23])
+    return SequentialState(*layers), sorted([6, 4, 14, 10, 17, 20, 23])
 
 
 def module_extender(module: callable, args: list, numberr: int, fromm: int, i: int):
-    module_ = nn.Sequential(*[module(*args) for _ in range(numberr)]) if numberr > 1 else module(*args)  # module
+    module_ = SequentialState(*[module(*args) for _ in range(numberr)]) if numberr > 1 else module(*args)  # module
     # logger.debug(module_.stateful_layers)
     t = str(module)[8:-2].replace('__main__.', '')  # module type
     np = sum([x.numel() for x in module_.parameters()])  # number params

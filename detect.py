@@ -46,6 +46,7 @@ def detect(save_img=False):
     if webcam:
         view_img = True
         cudnn.benchmark = True  # set True to speed up constant image size inference
+        save_img = True
         dataset = LoadStreams(source, img_size=imgsz)
     else:
         save_img = True
@@ -53,6 +54,12 @@ def detect(save_img=False):
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
+    print("available classes")
+    output = ""
+    for i,n in enumerate(names):
+        output = output + ", %d: %s" %(i,n)
+    print(output)
+
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in names]
 
     # Run inference
@@ -73,6 +80,7 @@ def detect(save_img=False):
         # Apply NMS
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
         t2 = time_synchronized()
+        t3 = t2 - t1
 
         # Apply Classifier
         if classify:
@@ -112,7 +120,7 @@ def detect(save_img=False):
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
 
             # Print time (inference + NMS)
-            print(f'{s}Done. ({t2 - t1:.3f}s)')
+            print(f'{s}Done. ({t3:.3f}s)')
 
             # Stream results
             if view_img:
@@ -124,6 +132,10 @@ def detect(save_img=False):
             if save_img:
                 if dataset.mode == 'image':
                     cv2.imwrite(save_path, im0)
+                elif webcam:
+                    # saves only if somehing is detected
+                    if det.shape[0] > 1 :
+                        cv2.imwrite(save_path + "%09d.jpg"%dataset.frame, im0)
                 else:  # 'video'
                     if vid_path != save_path:  # new video
                         vid_path = save_path
@@ -136,6 +148,10 @@ def detect(save_img=False):
                         h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
                     vid_writer.write(im0)
+
+        if t3 < 0.1:
+            time.sleep(0.1-t3)
+
 
     if save_txt or save_img:
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''

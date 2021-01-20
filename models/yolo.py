@@ -87,7 +87,7 @@ class Model(nn.Module):
         # self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
         self.model, self.save = make_model(ch=[ch])  # model, savelist
         logger.debug(self.model)
-        logger.debug(self.model.stateful_layers)
+        # logger.debug(self.model.stateful_layers)
 
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
@@ -144,15 +144,7 @@ class Model(nn.Module):
                 dt.append((time_synchronized() - t) * 100)
                 print('%10.1f%10.0f%10.1fms %-40s' % (o, m.np, dt[-1], m.type))
 
-            if False and self.model.stateful_layers[i]:
-                x, s = m(x, states[i])
-                states[i] = s
-            else:
-                x = m(x)
-
-            if isinstance(x, tuple):
-                states[i] = x[1]
-                x = x[0]
+            x = m(x)
 
             y.append(x if m.i in self.save else None)  # save output
 

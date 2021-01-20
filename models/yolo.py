@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 
 sys.path.append('./')  # to run '$ python *.py' files in subdirectories
-logger = logging.getLogger(__name__)
+from loguru import logger
 
 from models.common import Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, C3, Concat, NMS, autoShape
 from models.experimental import MixConv2d, CrossConv
@@ -22,7 +22,6 @@ try:
     import thop  # for FLOPS computation
 except ImportError:
     thop = None
-
 
 class Detect(nn.Module):
     stride = None  # strides computed during build
@@ -82,7 +81,11 @@ class Model(nn.Module):
         if nc and nc != self.yaml['nc']:
             logger.info('Overriding model.yaml nc=%g with nc=%g' % (self.yaml['nc'], nc))
             self.yaml['nc'] = nc  # override yaml value
-        self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
+        # self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
+        self.model, self.save = make_model(ch=[ch])  # model, savelist
+        logger.debug(self.model)
+        logger.debug(self.model.stateful_layers)
+
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
 
@@ -90,6 +93,7 @@ class Model(nn.Module):
         m = self.model[-1]  # Detect()
         if isinstance(m, Detect):
             s = 128  # 2x min stride
+            #tried over here
             m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
             m.anchors /= m.stride.view(-1, 1, 1)
             check_anchor_order(m)
@@ -123,11 +127,12 @@ class Model(nn.Module):
             return self.forward_once(x, profile)  # single-scale inference, train
 
     def forward_once(self, x, profile=False):
-        y, dt = [], []  # outputs
-        for m in self.model:
+        y, dt, states = [], [], []  # outputs
+        states = [None] * len(self.model)
+        for i, m in enumerate(self.model):
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
-
+                # x = [x,x,x,x,x]
             if profile:
                 o = thop.profile(m, inputs=(x,), verbose=False)[0] / 1E9 * 2 if thop else 0  # FLOPS
                 t = time_synchronized()
@@ -136,7 +141,16 @@ class Model(nn.Module):
                 dt.append((time_synchronized() - t) * 100)
                 print('%10.1f%10.0f%10.1fms %-40s' % (o, m.np, dt[-1], m.type))
 
-            x = m(x)  # run
+            if False and self.model.stateful_layers[i]:
+                x, s = m(x, states[i])
+                states[i] = s
+            else:
+                x = m(x)
+
+            if isinstance(x, tuple):
+                states[i] = x[1]
+                x = x[0]
+
             y.append(x if m.i in self.save else None)  # save output
 
         if profile:
@@ -198,6 +212,72 @@ class Model(nn.Module):
         model_info(self, verbose, img_size)
 
 
+def make_model(ch=None):
+    if ch is None:
+        ch = [3]
+
+    anchors = [[10, 13, 16, 30, 33, 23],  # P3/8
+               [30, 61, 62, 45, 59, 119],  # P4/16
+               [116, 90, 156, 198, 373, 326]]  # P5/32
+    nc = 1
+    logger.info('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
+    na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
+    no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
+
+    layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
+
+    # backbone:
+    layers.append(module_extender(Focus, [3, 32, 3], 1, -1, 0))  # 0-P1/2
+    layers.append(module_extender(Conv, [32, 64, 3, 2], 1, -1, 1))  # 1-P2/4
+    layers.append(module_extender(BottleneckCSP, [64, 64, 1], 1, -1, 2))
+    layers.append(module_extender(Conv, [64, 128, 3, 2], 1, -1, 3))  # 3-P3/8
+    layers.append(module_extender(BottleneckCSP, [128, 128, 3], 1, -1, 4))
+    layers.append(module_extender(Conv, [128, 256, 3, 2], 1, -1, 5))  # 5-P4/16
+    layers.append(module_extender(BottleneckCSP, [256, 256, 3], 1, -1, 6))
+    layers.append(module_extender(Conv, [256, 512, 3, 2], 1, -1, 7))  # 7-P5/32
+    layers.append(module_extender(SPP, [512, 512, [5, 9, 13]], 1, -1, 8))
+    layers.append(module_extender(BottleneckCSP, [512, 512, 1, False], 1, -1, 9))  # 9
+
+    # head
+    layers.append(module_extender(Conv, [512, 256, 1, 1], 1, -1, 10))
+    layers.append(module_extender(nn.Upsample, [None, 2, 'nearest'], 1, -1, 11))
+    layers.append(module_extender(Concat, [1], 1, [-1, 6], 12))  # cat backbone P4
+    layers.append(module_extender(BottleneckCSP, [512, 256, 1, False], 1, -1, 13))  # 13
+
+    layers.append(module_extender(Conv, [256, 128, 1, 1], 1, -1, 14))
+    layers.append(module_extender(nn.Upsample, [None, 2, 'nearest'], 1, -1, 15))
+    layers.append(module_extender(Concat, [1], 1, [-1, 4], 16))  # cat backbone P3
+    layers.append(module_extender(BottleneckCSP, [256, 128, 1, False], 1, -1, 17))  # 17 (P3/8-small)
+
+    layers.append(module_extender(Conv, [128, 128, 3, 2], 1, -1, 18))
+    layers.append(module_extender(Concat, [1], 1, [-1, 14], 19))  # cat head P4
+    layers.append(module_extender(BottleneckCSP, [256, 256, 1, False], 1, -1, 20))  # 20 (P4/16-medium)
+
+    layers.append(module_extender(Conv, [256, 256, 3, 2], 1, -1, 21))
+    layers.append(module_extender(Concat, [1], 1, [-1, 10], 22))  # cat head P5
+    layers.append(module_extender(BottleneckCSP, [512, 512, 1, False], 1, -1, 23))  # 23 (P5/32-medium)
+
+    layers.append(module_extender(Detect, [1,
+                                           [[10, 13, 16, 30, 33, 23], [30, 61, 62, 45, 59, 119],
+                                            [116, 90, 156, 198, 373, 326]],
+                                           [128, 256, 512]],
+                                  1,
+                                  [17, 20, 23],
+                                  24))  # Detect(P3, P4, P5)
+
+    return nn.Sequential(*layers), sorted([6, 4, 14, 10, 17, 20, 23])
+
+
+def module_extender(module: callable, args: list, numberr: int, fromm: int, i: int):
+    module_ = nn.Sequential(*[module(*args) for _ in range(numberr)]) if numberr > 1 else module(*args)  # module
+    # logger.debug(module_.stateful_layers)
+    t = str(module)[8:-2].replace('__main__.', '')  # module type
+    np = sum([x.numel() for x in module_.parameters()])  # number params
+    module_.i, module_.f, module_.type, module_.np = i, fromm, t, np  # attach index, 'from' index, type, number params
+
+    return module_
+
+
 def parse_model(d, ch):  # model_dict, input_channels(3)
     logger.info('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
     anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
@@ -205,59 +285,51 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
     no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
 
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
-    for i, (f, n, m, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
-        m = eval(m) if isinstance(m, str) else m  # eval strings
+
+    # [from, number, module, args]
+    for i, (fromm, numberr, module, args) in enumerate(d['backbone'] + d['head']):  # from, number, module, args
+        # print(module)
+        module = eval(module) if isinstance(module, str) else module  # eval strings
         for j, a in enumerate(args):
             try:
+                # print(a)
                 args[j] = eval(a) if isinstance(a, str) else a  # eval strings
             except:
                 pass
 
-        n = max(round(n * gd), 1) if n > 1 else n  # depth gain
-        if m in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3]:
-            c1, c2 = ch[f], args[0]
-
-            # Normal
-            # if i > 0 and args[0] != no:  # channel expansion factor
-            #     ex = 1.75  # exponential (default 2.0)
-            #     e = math.log(c2 / ch[1]) / math.log(2)
-            #     c2 = int(ch[1] * ex ** e)
-            # if m != Focus:
+        numberr = max(round(numberr * gd), 1) if numberr > 1 else numberr  # depth gain
+        if module in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3]:
+            c1, c2 = ch[fromm], args[0]
 
             c2 = make_divisible(c2 * gw, 8) if c2 != no else c2
 
-            # Experimental
-            # if i > 0 and args[0] != no:  # channel expansion factor
-            #     ex = 1 + gw  # exponential (default 2.0)
-            #     ch1 = 32  # ch[1]
-            #     e = math.log(c2 / ch1) / math.log(2)  # level 1-n
-            #     c2 = int(ch1 * ex ** e)
-            # if m != Focus:
-            #     c2 = make_divisible(c2, 8) if c2 != no else c2
-
             args = [c1, c2, *args[1:]]
-            if m in [BottleneckCSP, C3]:
-                args.insert(2, n)
-                n = 1
-        elif m is nn.BatchNorm2d:
-            args = [ch[f]]
-        elif m is Concat:
-            c2 = sum([ch[-1 if x == -1 else x + 1] for x in f])
-        elif m is Detect:
-            args.append([ch[x + 1] for x in f])
+            if module in [BottleneckCSP, C3]:
+                args.insert(2, numberr)
+                numberr = 1
+        elif module is nn.BatchNorm2d:
+            args = [ch[fromm]]
+        elif module is Concat:
+            c2 = sum([ch[-1 if x == -1 else x + 1] for x in fromm])
+        elif module is Detect:
+            args.append([ch[x + 1] for x in fromm])
             if isinstance(args[1], int):  # number of anchors
-                args[1] = [list(range(args[1] * 2))] * len(f)
+                args[1] = [list(range(args[1] * 2))] * len(fromm)
         else:
-            c2 = ch[f]
+            c2 = ch[fromm]
 
-        m_ = nn.Sequential(*[m(*args) for _ in range(n)]) if n > 1 else m(*args)  # module
-        t = str(m)[8:-2].replace('__main__.', '')  # module type
-        np = sum([x.numel() for x in m_.parameters()])  # number params
-        m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
-        logger.info('%3s%18s%3s%10.0f  %-40s%-30s' % (i, f, n, np, t, args))  # print
-        save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist
-        layers.append(m_)
+        module_ = nn.Sequential(*[module(*args) for _ in range(numberr)]) if numberr > 1 else module(*args)  # module
+        t = str(module)[8:-2].replace('__main__.', '')  # module type
+        print(f'layers.append(module_extender({t[14:] + ",":14} {str(args) + ",":22} {str(numberr) + ",":3}  {str(fromm) + ",":8}  {str(i):2}))')
+        np = sum([x.numel() for x in module_.parameters()])  # number params
+        module_.i, module_.f, module_.type, module_.np = i, fromm, t, np  # attach index, 'from' index, type, number params
+        # print(module, module_,module_.i, module_.f, module_.type, module_.np)
+        logger.info('%3s%18s%3s%10.0f  %-40s%-30s' % (i, fromm, numberr, np, t, args))  # print
+        save.extend(x % i for x in ([fromm] if isinstance(fromm, int) else fromm) if x != -1)  # append to savelist
+        layers.append(module_)
         ch.append(c2)
+
+    exit()
     return nn.Sequential(*layers), sorted(save)
 
 

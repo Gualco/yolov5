@@ -258,7 +258,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
     def __init__(self, sources='streams.txt', img_size=640):
         self.mode = 'stream'
         self.img_size = img_size
-
+        self.frame = 0
         if os.path.isfile(sources):
             with open(sources, 'r') as f:
                 sources = [x.strip() for x in f.read().strip().splitlines() if len(x.strip())]
@@ -292,6 +292,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
         # Read next stream frame in a daemon thread
         n = 0
         while cap.isOpened():
+            self.frame += 1
             n += 1
             # _, self.imgs[index] = cap.read()
             cap.grab()

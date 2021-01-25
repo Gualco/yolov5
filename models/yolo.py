@@ -4,12 +4,13 @@ import math
 import sys
 from copy import deepcopy
 from pathlib import Path
+from typing import Union
 
 import torch
 import torch.nn as nn
 
-
 from norse.torch import SequentialState    # Stateful sequential layers
+import numpy as np
 
 sys.path.append('./')  # to run '$ python *.py' files in subdirectories
 from loguru import logger
@@ -97,7 +98,7 @@ class Model(nn.Module):
         if isinstance(m, Detect):
             s = 128  # 2x min stride
             #tried over here
-            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
+            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward_standard(torch.zeros(1, ch, s, s))])  # forward
             m.anchors /= m.stride.view(-1, 1, 1)
             check_anchor_order(m)
             self.stride = m.stride
@@ -109,7 +110,24 @@ class Model(nn.Module):
         self.info()
         logger.info('')
 
-    def forward(self, x, augment=False, profile=False):
+    def forward(self, x_t:Union[int, int, int, int, int], augment=False, profile=False):
+        # x: shape => (t, batchsize, h, w, depth)
+        # output = []
+        x = "torch.tensor"
+        for t in range(x_t.size(0)):
+            x = self.forward_standard(x_t[t, :, :, :, :], augment=augment, profile=profile)
+            # logger.debug(f'forward one batch{len(x)}: [{len(x[0])}, {len(x[0][0])}, {len(x[0][0][0])}]')
+            # output.append(x)
+
+        return x
+
+    def forward_standard(self, x, augment=False, profile=False):
+        # x: shape => (batch_size, h, w, 3)
+        '''
+        logger.debug(f'input:{type(x)}')
+        logger.debug(f'input:  {x.size()}')
+        logger.debug(f'{augment}, {profile}')
+        '''
         if augment:
             img_size = x.shape[-2:]  # height, width
             s = [1, 0.83, 0.67]  # scales
@@ -130,8 +148,11 @@ class Model(nn.Module):
             return self.forward_once(x, profile)  # single-scale inference, train
 
     def forward_once(self, x, profile=False):
+        # x: shape => (batch_size, h, w, 3)
         y, dt, states = [], [], []  # outputs
         states = [None] * len(self.model)
+        # logger.debug(f'input:{type(x)}')
+        # logger.debug(f'input:  {x.size()}')
         for i, m in enumerate(self.model):
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
@@ -143,13 +164,42 @@ class Model(nn.Module):
                     _ = m(x)
                 dt.append((time_synchronized() - t) * 100)
                 print('%10.1f%10.0f%10.1fms %-40s' % (o, m.np, dt[-1], m.type))
+            '''
+            logger.debug(f'{m.type}, input:{type(x)}')
+            if(type(x) == list):
+                try:
+                    logger.debug(f'list: {np.shape(x)}')
+                except:
+                    if (len(x)) == 2:
+                        logger.debug(f'list: [{len(x[0])}, {len(x[1])}]')
+                    if (len(x)) == 3:
+                        logger.debug(f'list: [{len(x[0])}, {len(x[1])}, {len(x[2])}]')
 
+            else:
+                logger.debug(f'{x.size()}')
+            '''
             x = m(x)
 
             y.append(x if m.i in self.save else None)  # save output
 
         if profile:
             print('%.1fms total' % sum(dt))
+        '''
+        if (type(x) == tuple):
+            logger.debug(f'output tuple{len(x)}: ({type(x[0])}, {type(x[1])})')
+            logger.debug(f'{x[0].size()}')
+            if (len(x)) == 2:
+                logger.debug(f'output list: [{len(x[1][0])}, {len(x[1][1])}]')
+            if (len(x)) == 3:
+                logger.debug(f'output list: [{len(x[1][0])}, {len(x[1][1])}, {len(x[1][2])}]')
+        elif  (type(x) == list):
+            if (len(x)) == 2:
+                logger.debug(f'output list: [{len(x[0])}, {len(x[1])}]')
+            if (len(x)) == 3:
+                logger.debug(f'output list: [{len(x[0])}, {len(x[1])}, {len(x[2])}]')
+        else:
+            logger.debug(f' output not a tuple or list: {type(x)}')
+        '''
         return x
 
     def _initialize_biases(self, cf=None):  # initialize biases into Detect(), cf is class frequency
@@ -261,6 +311,7 @@ def make_model(ch=None):
                                   24))  # Detect(P3, P4, P5)
 
     return SequentialState(*layers), sorted([6, 4, 14, 10, 17, 20, 23])
+
 
 
 def module_extender(module: callable, args: list, numberr: int, fromm: int, i: int):

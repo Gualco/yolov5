@@ -1,5 +1,5 @@
 import argparse
-import logging
+# import logging
 import math
 import os
 import random
@@ -34,8 +34,9 @@ from utils.loss import compute_loss
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first
 
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
+from loguru import logger
 try:
     import wandb
 except ImportError:
@@ -131,14 +132,18 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     # plot_lr_scheduler(optimizer, scheduler, epochs)
 
     # Logging
+    loggers = {}
+    wandb = False
     if wandb and wandb.run is None:
+        logger.info("running wandb")
         opt.hyp = hyp  # add hyperparameters
         wandb_run = wandb.init(config=opt, resume="allow",
-                               project='YOLOv5' if opt.project == 'runs/train' else Path(opt.project).stem,
+                               project='dvs_norse' if opt.project == 'runs/train' else Path(opt.project).stem,
                                name=save_dir.stem,
                                id=ckpt.get('wandb_id') if 'ckpt' in locals() else None)
-    loggers = {'wandb': wandb}  # loggers dict
-
+        loggers = {'wandb': wandb}  # loggers dict
+    else:
+        logger.info("wandb is disabled")
     # Resume
     start_epoch, best_fitness = 0, 0.0
     if pretrained:
@@ -284,10 +289,19 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                     ns = [math.ceil(x * sf / gs) * gs for x in imgs.shape[2:]]  # new shape (stretched to gs-multiple)
                     imgs = F.interpolate(imgs, size=ns, mode='bilinear', align_corners=False)
 
+            #forward img time scale:
+            # adds a Dimenson and repeats all others in it
+            # logger.debug(f'train input: {imgs.size()} {imgs.size(1)}')
+            imgs = imgs.unsqueeze(0).repeat(5, 1, 1, 1, 1)
+            logger.debug(f'train repeated input shape: {imgs.size()} {imgs.size(1)} [time, batchsize, height, width, colorchannels]')
+
             # Forward
             with amp.autocast(enabled=cuda):
                 pred = model(imgs)  # forward
+                # logger.debug(f'train output{len(pred)}: [{len(pred[0])}, {len(pred[0][0])}, {len(pred[0][0][0])}]')
                 loss, loss_items = compute_loss(pred, targets.to(device), model)  # loss scaled by batch_size
+                # logger.debug(f'train output: {len(pred)}: [{len(pred[0])}, {len(pred[0][0])}, {len(pred[0][0][0])}]')
+
                 if rank != -1:
                     loss *= opt.world_size  # gradient averaged between devices in DDP mode
 
@@ -313,7 +327,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 # Plot
                 if plots and ni < 3:
                     f = save_dir / f'train_batch{ni}.jpg'  # filename
-                    Thread(target=plot_images, args=(imgs, targets, paths, f), daemon=True).start()
+                    Thread(target=plot_images, args=(imgs[0,:,:,:,:], targets, paths, f), daemon=True).start()
                     # if tb_writer:
                     #     tb_writer.add_image(f, result, dataformats='HWC', global_step=epoch)
                     #     tb_writer.add_graph(model, imgs)  # add model to tensorboard

@@ -139,7 +139,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         logger.info("running wandb")
         opt.hyp = hyp  # add hyperparameters
         wandb_run = wandb.init(config=opt, resume="allow",
-                               project='dvs_norse' if opt.project == 'runs/train' else Path(opt.project).stem,
+                               project='dvs_img_seq' if opt.project == 'runs/train' else Path(opt.project).stem,
                                name=save_dir.stem,
                                id=ckpt.get('wandb_id') if 'ckpt' in locals() else None)
         loggers = {'wandb': wandb}  # loggers dict

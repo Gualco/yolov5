@@ -15,7 +15,7 @@ from norse.torch import SequentialState    # Stateful sequential layers
 sys.path.append('./')  # to run '$ python *.py' files in subdirectories
 from loguru import logger
 
-from models.common import Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, C3, Concat, NMS, autoShape
+from models.common import Conv_S, Focus_S, Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, C3, Concat, NMS, autoShape
 from models.experimental import MixConv2d, CrossConv
 from utils.autoanchor import check_anchor_order
 from utils.general import make_divisible, check_file, set_logging

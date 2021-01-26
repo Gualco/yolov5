@@ -281,7 +281,7 @@ def make_model(ch=None):
     layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
 
     # backbone:
-    layers.append(module_extender(Focus, [3, 32, 3], 1, -1, 0))  # 0-P1/2
+    layers.append(module_extender(Focus_S, [3, 32, 3], 1, -1, 0))  # 0-P1/2
     layers.append(module_extender(Conv, [32, 64, 3, 2], 1, -1, 1))  # 1-P2/4
     layers.append(module_extender(BottleneckCSP, [64, 64, 1], 1, -1, 2))
     layers.append(module_extender(Conv, [64, 128, 3, 2], 1, -1, 3))  # 3-P3/8

@@ -295,7 +295,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             # adds a Dimenson and repeats all others in it
             # logger.debug(f'train input: {imgs.size()} {imgs.size(1)}')
             imgs = imgs.unsqueeze(0).repeat(5, 1, 1, 1, 1)
-            logger.debug(f'train repeated input shape: {imgs.size()} {imgs.size(1)} [time, batchsize, height, width, colorchannels]')
+            # logger.debug(f'train repeated input shape: {imgs.size()} {imgs.size(1)} [time, batchsize, height, width, colorchannels]')
 
             # Forward
             with amp.autocast(enabled=cuda):

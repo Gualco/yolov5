@@ -14,6 +14,7 @@ from norse.torch import LICell             # Leaky integrator
 # from norse.torch.module.lif import LIFFeedForwardLayer # Leaky integrate-and-fire
 from norse.torch import LIFFeedForwardCell # Leaky integrate-and-fire
 from norse.torch import SequentialState    # Stateful sequential layers
+from norse.torch import LIFParameters    # Stateful sequential layers
 
 from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, xyxy2xywh
@@ -56,7 +57,17 @@ class Conv_S(nn.Module):
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
         self.bn = nn.BatchNorm2d(c2)
         # self.act = nn.Hardswish() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
-        self.act = LIFFeedForwardCell()
+        p = LIFParameters(
+            tau_syn_inv = torch.as_tensor(1.0 / 5e-3),
+            tau_mem_inv = torch.as_tensor(1.0 / 1e-2),
+            v_leak = torch.as_tensor(0.0),
+            v_th= torch.as_tensor(0.05),
+            v_reset = torch.as_tensor(0.0),
+            method = "heavi_tent_fn",
+            alpha = torch.as_tensor(100.0)
+        )
+
+        self.act = LIFFeedForwardCell(p=p, dt=0.001)
 
     def forward(self, input_tensor: torch.Tensor, state: Union[list, None] = None):
         # logger.debug(type(self).__name__)

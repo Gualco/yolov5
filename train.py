@@ -134,7 +134,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
     # Logging
     loggers = {}
-    wandb = False
+    # wandb = False
     if wandb and wandb.run is None:
         logger.info("running wandb")
         opt.hyp = hyp  # add hyperparameters
@@ -470,6 +470,7 @@ if __name__ == '__main__':
     parser.add_argument('--sync-bn', action='store_true', help='use SyncBatchNorm, only available in DDP mode')
     parser.add_argument('--local_rank', type=int, default=-1, help='DDP parameter, do not modify')
     parser.add_argument('--log-imgs', type=int, default=16, help='number of images for W&B logging, max 100')
+    parser.add_argument('--wandblog', type=bool, default=False, help='if wandb should be used')
     parser.add_argument('--log-artifacts', action='store_true', help='log artifacts, i.e. final trained model')
     parser.add_argument('--workers', type=int, default=8, help='maximum number of dataloader workers')
     parser.add_argument('--project', default='runs/train', help='save to project/name')
@@ -518,6 +519,10 @@ if __name__ == '__main__':
             warn('Compatibility: %s missing "box" which was renamed from "giou" in %s' %
                  (opt.hyp, 'https://github.com/ultralytics/yolov5/pull/1120'))
             hyp['box'] = hyp.pop('giou')
+
+    # W&B
+    if not opt.wandblog:
+        wandb = False
 
     # Train
     logger.info(opt)

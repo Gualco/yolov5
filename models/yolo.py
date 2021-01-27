@@ -1,5 +1,4 @@
 import argparse
-import logging
 import math
 import sys
 from copy import deepcopy
@@ -9,8 +8,7 @@ from typing import Union
 import torch
 import torch.nn as nn
 
-import numpy as np
-from norse.torch import SequentialState    # Stateful sequential layers
+from norse.torch.module import SequentialState    # Stateful sequential layers
 
 sys.path.append('./')  # to run '$ python *.py' files in subdirectories
 from loguru import logger

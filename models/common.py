@@ -8,13 +8,11 @@ import torch.nn as nn
 from PIL import Image, ImageDraw
 
 from typing import Union
-from loguru import logger
 
-from norse.torch import LICell             # Leaky integrator
 # from norse.torch.module.lif import LIFFeedForwardLayer # Leaky integrate-and-fire
-from norse.torch import LIFFeedForwardCell # Leaky integrate-and-fire
-from norse.torch import SequentialState    # Stateful sequential layers
-from norse.torch import LIFParameters    # Stateful sequential layers
+from norse.torch.module import LIFFeedForwardCell # Leaky integrate-and-fire
+from norse.torch.module import SequentialState    # Stateful sequential layers
+from norse.torch.functional import LIFParameters    # spiking lif parameters
 
 from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, xyxy2xywh

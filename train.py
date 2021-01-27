@@ -8,7 +8,7 @@ from pathlib import Path
 from threading import Thread
 from warnings import warn
 
-from norse.torch import LIFParameters    # Stateful sequential layers
+from norse.torch.module import LIFParameters    # Stateful sequential layers
 import numpy as np
 import torch.distributed as dist
 import torch.nn as nn

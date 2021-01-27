@@ -168,20 +168,7 @@ class Model(nn.Module):
                     _ = m(x)
                 dt.append((time_synchronized() - t) * 100)
                 print('%10.1f%10.0f%10.1fms %-40s' % (o, m.np, dt[-1], m.type))
-            '''
-            logger.debug(f'{m.type}, input:{type(x)}')
-            if(type(x) == list):
-                try:
-                    logger.debug(f'list: {np.shape(x)}')
-                except:
-                    if (len(x)) == 2:
-                        logger.debug(f'list: [{len(x[0])}, {len(x[1])}]')
-                    if (len(x)) == 3:
-                        logger.debug(f'list: [{len(x[0])}, {len(x[1])}, {len(x[2])}]')
 
-            else:
-                logger.debug(f'{x.size()}')
-            '''
             # logger.info(f'{i} : {m.type} : {self.model.stateful_layers[i]}')
             if self.model.stateful_layers[i]:
                 x, s = m(x, state[i])
@@ -193,22 +180,7 @@ class Model(nn.Module):
 
         if profile:
             print('%.1fms total' % sum(dt))
-        '''
-        if (type(x) == tuple):
-            logger.debug(f'output tuple{len(x)}: ({type(x[0])}, {type(x[1])})')
-            logger.debug(f'{x[0].size()}')
-            if (len(x)) == 2:
-                logger.debug(f'output list: [{len(x[1][0])}, {len(x[1][1])}]')
-            if (len(x)) == 3:
-                logger.debug(f'output list: [{len(x[1][0])}, {len(x[1][1])}, {len(x[1][2])}]')
-        elif  (type(x) == list):
-            if (len(x)) == 2:
-                logger.debug(f'output list: [{len(x[0])}, {len(x[1])}]')
-            if (len(x)) == 3:
-                logger.debug(f'output list: [{len(x[0])}, {len(x[1])}, {len(x[2])}]')
-        else:
-            logger.debug(f' output not a tuple or list: {type(x)}')
-        '''
+
         return x, state
 
     def _initialize_biases(self, cf=None):  # initialize biases into Detect(), cf is class frequency
@@ -311,7 +283,7 @@ def make_model(ch=None):
     layers.append(module_extender(Concat, [1], 1, [-1, 10], 22))  # cat head P5
     layers.append(module_extender(BottleneckCSP, [512, 512, 1, False], 1, -1, 23))  # 23 (P5/32-medium)
 
-    layers.append(module_extender(Detect, [1,
+    layers.append(module_extender(Detect, [2,
                                            [[10, 13, 16, 30, 33, 23], [30, 61, 62, 45, 59, 119],
                                             [116, 90, 156, 198, 373, 326]],
                                            [128, 256, 512]],

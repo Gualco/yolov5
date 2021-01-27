@@ -52,22 +52,23 @@ class Conv(nn.Module):
 
 class Conv_S(nn.Module):
     # Standard convolution
-    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True, lifP=None):  # ch_in, ch_out, kernel, stride, padding, groups
         super(Conv_S, self).__init__()
         self.conv = nn.Conv2d(c1, c2, k, s, autopad(k, p), groups=g, bias=False)
         self.bn = nn.BatchNorm2d(c2)
         # self.act = nn.Hardswish() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
-        p = LIFParameters(
-            tau_syn_inv = torch.as_tensor(1.0 / 5e-3),
-            tau_mem_inv = torch.as_tensor(1.0 / 1e-2),
-            v_leak = torch.as_tensor(0.0),
-            v_th= torch.as_tensor(0.05),
-            v_reset = torch.as_tensor(0.0),
-            method = "heavi_tent_fn",
-            alpha = torch.as_tensor(100.0)
-        )
+        if not lifP:
+            lifP = LIFParameters(
+                tau_syn_inv = torch.as_tensor(1.0 / 5e-3), # maybe disable it mone run
+                tau_mem_inv = torch.as_tensor(1.0 / 1e-2),
+                v_leak = torch.as_tensor(0.0),
+                v_th= torch.as_tensor(0.03),
+                v_reset = torch.as_tensor(0.0), # changes at reset not used
+                method = "super",
+                alpha = torch.as_tensor(100.0)
+            )
 
-        self.act = LIFFeedForwardCell(p=p, dt=0.001)
+        self.act = LIFFeedForwardCell(p=lifP, dt=0.001)
 
     def forward(self, input_tensor: torch.Tensor, state: Union[list, None] = None):
         # logger.debug(type(self).__name__)
@@ -229,9 +230,9 @@ class Focus(nn.Module):
 
 class Focus_S(nn.Module):
     # Focus wh information into c-space
-    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
+    def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True, lifP=None):  # ch_in, ch_out, kernel, stride, padding, groups, activation, lifparameters
         super(Focus_S, self).__init__()
-        self.conv = Conv_S(c1 * 4, c2, k, s, p, g, act)
+        self.conv = Conv_S(c1 * 4, c2, k, s, p, g, act, lifP)
 
     def forward(self, x, state: Union[list, None] = None):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
         # logger.debug("focus")

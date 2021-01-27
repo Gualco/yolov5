@@ -85,11 +85,8 @@ class Model(nn.Module):
         if nc and nc != self.yaml['nc']:
             logger.info('Overriding model.yaml nc=%g with nc=%g' % (self.yaml['nc'], nc))
             self.yaml['nc'] = nc  # override yaml value
-        # self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
-        self.model, self.save = make_model(ch=[ch])  # model, savelist
-        logger.debug(self.model)
-        logger.debug(self.model.stateful_layers)
-        # logger.debug(self.model.stateful_layers)
+        self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
+        # self.model, self.save = make_model(ch=[ch])  # model, savelist
 
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
@@ -325,7 +322,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 pass
 
         numberr = max(round(numberr * gd), 1) if numberr > 1 else numberr  # depth gain
-        if module in [Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP, C3]:
+        if module in [Conv_S, Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, Focus_S, CrossConv, BottleneckCSP, C3]:
             c1, c2 = ch[fromm], args[0]
 
             c2 = make_divisible(c2 * gw, 8) if c2 != no else c2
@@ -347,17 +344,16 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
         module_ = nn.Sequential(*[module(*args) for _ in range(numberr)]) if numberr > 1 else module(*args)  # module
         t = str(module)[8:-2].replace('__main__.', '')  # module type
-        print(f'layers.append(module_extender({t[14:] + ",":14} {str(args) + ",":22} {str(numberr) + ",":3}  {str(fromm) + ",":8}  {str(i):2}))')
+        # print(f'layers.append(module_extender({t[14:] + ",":14} {str(args) + ",":22} {str(numberr) + ",":3}  {str(fromm) + ",":8}  {str(i):2}))')
         np = sum([x.numel() for x in module_.parameters()])  # number params
         module_.i, module_.f, module_.type, module_.np = i, fromm, t, np  # attach index, 'from' index, type, number params
         # print(module, module_,module_.i, module_.f, module_.type, module_.np)
-        logger.info('%3s%18s%3s%10.0f  %-40s%-30s' % (i, fromm, numberr, np, t, args))  # print
+        # logger.info('%3s%18s%3s%10.0f  %-40s%-30s' % (i, fromm, numberr, np, t, args))  # print
         save.extend(x % i for x in ([fromm] if isinstance(fromm, int) else fromm) if x != -1)  # append to savelist
         layers.append(module_)
         ch.append(c2)
 
-    exit()
-    return nn.Sequential(*layers), sorted(save)
+    return SequentialState(*layers), sorted(save)
 
 
 if __name__ == '__main__':

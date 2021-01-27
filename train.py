@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Thread
 from warnings import warn
 
+from norse.torch import LIFParameters    # Stateful sequential layers
 import numpy as np
 import torch.distributed as dist
 import torch.nn as nn
@@ -24,6 +25,7 @@ from tqdm import tqdm
 import test  # import test.py to get mAP after each epoch
 from models.experimental import attempt_load
 from models.yolo import Model
+import models.common
 from utils.autoanchor import check_anchors
 from utils.datasets import create_dataloader
 from utils.general import labels_to_class_weights, increment_path, labels_to_image_weights, init_seeds, \
@@ -37,7 +39,6 @@ from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_di
 # logger = logging.getLogger(__name__)
 from loguru import logger
 
-from loguru import logger
 try:
     import wandb
 except ImportError:
@@ -145,6 +146,9 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         loggers = {'wandb': wandb}  # loggers dict
     else:
         logger.info("wandb is disabled")
+
+    logger.info(model.model)
+    logger.info(model.model.stateful_layers)
 
     # Resume
     start_epoch, best_fitness = 0, 0.0
@@ -399,7 +403,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 if best_fitness == fi:
                     torch.save(ckpt, best)
                 del ckpt
-        # end epoch ----------------------------------------------------------------------------------------------------
+        # end epoch --------True--------------------------------------------------------------------------------------------
     # end training
 
     if rank in [-1, 0]:
@@ -444,6 +448,17 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     torch.cuda.empty_cache()
     return results
 
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
+opt=""
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='yolov5s.pt', help='initial weights path')
@@ -469,12 +484,15 @@ if __name__ == '__main__':
     parser.add_argument('--sync-bn', action='store_true', help='use SyncBatchNorm, only available in DDP mode')
     parser.add_argument('--local_rank', type=int, default=-1, help='DDP parameter, do not modify')
     parser.add_argument('--log-imgs', type=int, default=16, help='number of images for W&B logging, max 100')
-    parser.add_argument('--wandblog', type=bool, default=False, help='if wandb should be used')
+    parser.add_argument('--wandblog', type=str2bool, nargs='?', const=True, default=False, help='if wandb should be used')
     parser.add_argument('--log-artifacts', action='store_true', help='log artifacts, i.e. final trained model')
     parser.add_argument('--workers', type=int, default=8, help='maximum number of dataloader workers')
     parser.add_argument('--project', default='runs/train', help='save to project/name')
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--v_th', type=float, default=0.3, help='spiking hyper parameter')
+    parser.add_argument('--tauskip', type=str2bool, nargs='?', const=True, default=False, help='spiking flag')
+    parser.add_argument('--v_resetskip', type=str2bool, nargs='?', const=True, default=False, help='spiking flag')
     opt = parser.parse_args()
 
     # Set DDP variables
@@ -484,6 +502,22 @@ if __name__ == '__main__':
     set_logging(opt.global_rank)
     if opt.global_rank in [-1, 0]:
         check_git_status()
+
+    #LIFPa
+    # little hack to fast access the spiking hyperparams in common
+    models.common.LIFPa = LIFParameters(
+        tau_syn_inv=torch.as_tensor(1.0 / 5e-3),  # maybe disable it one run
+        tau_mem_inv=torch.as_tensor(1.0 / 1e-2),
+        v_leak=torch.as_tensor(0.0),
+        v_th=torch.as_tensor(opt.v_th),
+        v_reset=torch.as_tensor(0.0),  # changes at reset not used
+        method="super",
+        alpha=torch.as_tensor(100.0),
+        flags={"tau_syn_skip": str2bool(opt.tauskip),
+               "v_reset_skip": str2bool(opt.v_resetskip)},
+    )
+    opt.name = f'{opt.name}_ts[{str(opt.tauskip)[0]}]_vrs[{str(opt.v_resetskip)[0]}]_vth[{str(opt.v_th).replace(".",",")}]{opt.cfg.split("/")[-1].split(".")[0]}'
+    logger.info(opt.name)
 
     # Resume
     if opt.resume:  # resume an interrupted run

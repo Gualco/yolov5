@@ -49,6 +49,19 @@ class Conv(nn.Module):
         # logger.debug(f'{type(self).__name__} fuse')
         return self.act(self.conv(x))
 
+# default LIF Params
+LIFPa = LIFParameters(
+    tau_syn_inv=torch.as_tensor(1.0 / 5e-3),  # maybe disable it one run
+    tau_mem_inv=torch.as_tensor(1.0 / 1e-2),
+    v_leak=torch.as_tensor(0.0),
+    v_th=torch.as_tensor(0.00001),
+    v_reset=torch.as_tensor(0.0),  # changes at reset not used
+    method="tent",
+    alpha=torch.as_tensor(100.0),
+    flags={"tau_syn_skip": False,
+           "v_reset_skip": False},
+)
+
 
 class Conv_S(nn.Module):
     # Standard convolution
@@ -58,20 +71,12 @@ class Conv_S(nn.Module):
         self.bn = nn.BatchNorm2d(c2)
         # self.act = nn.Hardswish() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
         if not lifP:
-            lifP = LIFParameters(
-                tau_syn_inv = torch.as_tensor(1.0 / 5e-3), # maybe disable it mone run
-                tau_mem_inv = torch.as_tensor(1.0 / 1e-2),
-                v_leak = torch.as_tensor(0.0),
-                v_th= torch.as_tensor(0.03),
-                v_reset = torch.as_tensor(0.0), # changes at reset not used
-                method = "super",
-                alpha = torch.as_tensor(100.0)
-            )
+            lifP = LIFPa
 
         self.act = LIFFeedForwardCell(p=lifP, dt=0.001)
 
     def forward(self, input_tensor: torch.Tensor, state: Union[list, None] = None):
-        # logger.debug(type(self).__name__)
+        # logger.debug(f'{type(self).__name__}, {self}')
         if isinstance(input_tensor, tuple):
             state = input_tensor[1]
             input_tensor = input_tensor[0]

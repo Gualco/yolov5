@@ -490,6 +490,7 @@ if __name__ == '__main__':
     parser.add_argument('--project', default='runs/train', help='save to project/name')
     parser.add_argument('--name', default='exp', help='save to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
+    parser.add_argument('--spiking_method', type=str, default='super', help='threshold method')
     parser.add_argument('--v_th', type=float, default=0.3, help='spiking hyper parameter')
     parser.add_argument('--tauskip', type=str2bool, nargs='?', const=True, default=False, help='spiking flag')
     parser.add_argument('--v_resetskip', type=str2bool, nargs='?', const=True, default=False, help='spiking flag')
@@ -511,7 +512,7 @@ if __name__ == '__main__':
         v_leak=torch.as_tensor(0.0),
         v_th=torch.as_tensor(opt.v_th),
         v_reset=torch.as_tensor(0.0),  # changes at reset not used
-        method="super",
+        method=opt.spiking_method,
         alpha=torch.as_tensor(100.0),
         flags={"tau_syn_skip": str2bool(opt.tauskip),
                "v_reset_skip": str2bool(opt.v_resetskip)},

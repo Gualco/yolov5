@@ -13,7 +13,7 @@ from norse.torch.module import SequentialState    # Stateful sequential layers
 sys.path.append('./')  # to run '$ python *.py' files in subdirectories
 from loguru import logger
 
-from models.common import Conv_S, Focus_S, Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, C3, Concat, NMS, autoShape
+from models.common import Conv_S, Focus_S, BottleneckCSP_S, Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, C3, Concat, NMS, autoShape
 from models.experimental import MixConv2d, CrossConv
 from utils.autoanchor import check_anchor_order
 from utils.general import make_divisible, check_file, set_logging
@@ -320,13 +320,13 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 pass
 
         numberr = max(round(numberr * gd), 1) if numberr > 1 else numberr  # depth gain
-        if module in [Conv_S, Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, Focus_S, CrossConv, BottleneckCSP, C3]:
+        if module in [Conv_S, Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, Focus_S, CrossConv, BottleneckCSP_S, BottleneckCSP, C3]:
             c1, c2 = ch[fromm], args[0]
 
             c2 = make_divisible(c2 * gw, 8) if c2 != no else c2
 
             args = [c1, c2, *args[1:]]
-            if module in [BottleneckCSP, C3]:
+            if module in [BottleneckCSP, BottleneckCSP_S, C3]:
                 args.insert(2, numberr)
                 numberr = 1
         elif module is nn.BatchNorm2d:

@@ -27,7 +27,7 @@ except ImportError:
 
 class Detect(nn.Module):
     stride = None  # strides computed during build
-    export = False  # onnx export
+    export = True  # onnx export
 
     def __init__(self, nc=80, anchors=(), ch=()):  # detection layer
         super(Detect, self).__init__()
@@ -111,7 +111,7 @@ class Model(nn.Module):
         # output = []
         x = "torch.tensor"
         state = [None] * len(self.model) if state is None else state
-        for t in range(x_t.size(0)):
+        for t in range(x_t.size(0)): # x_t.size(0)):
             x, state = self.forward_standard(x_t[t, :, :, :, :], augment=augment, profile=profile, state=state)
             # logger.debug(f'forward one batch{len(x)}: [{len(x[0])}, {len(x[0][0])}, {len(x[0][0][0])}]')
             # output.append(x)
@@ -334,9 +334,11 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         elif module is Concat:
             c2 = sum([ch[-1 if x == -1 else x + 1] for x in fromm])
         elif module is Detect:
+            logger.debug(f'{fromm}, {args}')
             args.append([ch[x + 1] for x in fromm])
             if isinstance(args[1], int):  # number of anchors
                 args[1] = [list(range(args[1] * 2))] * len(fromm)
+            logger.debug(f'{fromm}, {args}')
         else:
             c2 = ch[fromm]
 

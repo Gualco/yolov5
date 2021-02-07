@@ -8,11 +8,12 @@ import torch.nn as nn
 from PIL import Image, ImageDraw
 
 from typing import Union
+from loguru import logger
 
 # from norse.torch.module.lif import LIFFeedForwardLayer # Leaky integrate-and-fire
-from norse.torch.module import LIFFeedForwardCell # Leaky integrate-and-fire
-from norse.torch.module import SequentialState    # Stateful sequential layers
-from norse.torch.functional import LIFParameters    # spiking lif parameters
+from norse.torch import SequentialState    # Stateful sequential layers
+from norse.torch import LIFCell# Leaky integrate-and-fire
+from norse.torch import LIFParameters    # spiking lif parameters
 
 from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, xyxy2xywh
@@ -56,8 +57,6 @@ LIFPa = LIFParameters(
     v_reset=torch.as_tensor(0.0),  # changes at reset not used
     method="tent",
     alpha=torch.as_tensor(100.0),
-    flags={"tau_syn_skip": False,
-           "v_reset_skip": False},
 )
 
 
@@ -71,7 +70,7 @@ class Conv_S(nn.Module):
         if not lifP:
             lifP = LIFPa
 
-        self.act = LIFFeedForwardCell(p=lifP, dt=0.001)
+        self.act = LIFCell(p=lifP, dt=0.001)
 
     def forward(self, input_tensor: torch.Tensor, state: Union[list, None] = None):
         # logger.debug(f'{type(self).__name__}, {self}')
@@ -79,6 +78,7 @@ class Conv_S(nn.Module):
             state = input_tensor[1]
             input_tensor = input_tensor[0]
 
+        logger.debug(f'{type(input_tensor)}:{input_tensor.shape}, {type(state)}')
         return self.act(self.bn(self.conv(input_tensor)), state)
 
     def fuseforward(self, x, state: Union[list, None] = None):
@@ -151,7 +151,7 @@ class BottleneckCSP_S(nn.Module):
         self.cv4 = Conv(2 * c_, c2, 1, 1)
         self.bn = nn.BatchNorm2d(2 * c_)  # applied to cat(cv2, cv3)
         self.act = nn.LeakyReLU(0.1, inplace=True)
-        self.act1 = LIFFeedForwardCell()
+        self.act1 = LIFCell()
         self.m = SequentialState(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
 
     def forward(self, x, state=None):

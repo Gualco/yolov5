@@ -261,8 +261,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                     dataset.indices = indices.cpu().numpy()
 
         # Update mosaic border
-        # b = int(random.uniform(0.25 * imgsz, 0.75 * imgsz + gs) // gs * gs)
-        # dataset.mosaic_border = [b - imgsz, -b]  # height, width borders
+        # b = int(random.uniform(   0.25 * imgsz, 0.75 * imgsz + gs) // gs * gs)
+        # dataset.mosaic_border = [b000000000000000000000000000000000000000000000000000000000000 - imgsz, -b]  # height, width borders
 
         mloss = torch.zeros(4, device=device)  # mean losses
         if rank != -1:
@@ -514,10 +514,8 @@ if __name__ == '__main__':
         v_reset=torch.as_tensor(0.0),  # changes at reset not used
         method=opt.spiking_method,
         alpha=torch.as_tensor(100.0),
-        flags={"tau_syn_skip": str2bool(opt.tauskip),
-               "v_reset_skip": str2bool(opt.v_resetskip)},
     )
-    opt.name = f'{opt.name}_ts[{str(opt.tauskip)[0]}]_vrs[{str(opt.v_resetskip)[0]}]_vth[{str(opt.v_th).replace(".",",")}]{opt.cfg.split("/")[-1].split(".")[0]}'
+    opt.name = f'{opt.name}_vth[{str(opt.v_th).replace(".",",")}]{opt.cfg.split("/")[-1].split(".")[0]}'
     logger.info(opt.name)
 
     # Resume

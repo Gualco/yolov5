@@ -145,7 +145,7 @@ class BottleneckCSP_S(nn.Module):
     def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5):  # ch_in, ch_out, number, shortcut, groups, expansion
         super(BottleneckCSP_S, self).__init__()
         c_ = int(c2 * e)  # hidden channels
-        self.cv1 = Conv_S(c1, c_, 1, 1)
+        self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = nn.Conv2d(c1, c_, 1, 1, bias=False)
         self.cv3 = nn.Conv2d(c_, c_, 1, 1, bias=False)
         self.cv4 = Conv(2 * c_, c2, 1, 1)

@@ -515,7 +515,8 @@ if __name__ == '__main__':
         method=opt.spiking_method,
         alpha=torch.as_tensor(100.0),
     )
-    opt.name = f'{opt.name}_vth[{str(opt.v_th).replace(".",",")}]{opt.cfg.split("/")[-1].split(".")[0]}'
+    # opt.name = f'{opt.name}_vth[{str(opt.v_th).replace(".",",")}]{opt.cfg.split("/")[-1].split(".")[0]}'
+    opt.name = f'{opt.name}_{opt.cfg.split("/")[-1].split(".")[0]}'
     logger.info(opt.name)
 
     # Resume

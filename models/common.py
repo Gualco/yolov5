@@ -78,7 +78,7 @@ class Conv_S(nn.Module):
             state = input_tensor[1]
             input_tensor = input_tensor[0]
 
-        logger.debug(f'{type(input_tensor)}:{input_tensor.shape}, {type(state)}')
+        # # # logger.debug(f'{type(input_tensor)}:{input_tensor.shape}, {type(state)}')
         return self.act(self.bn(self.conv(input_tensor)), state)
 
     def fuseforward(self, x, state: Union[list, None] = None):
@@ -152,22 +152,20 @@ class BottleneckCSP_S(nn.Module):
         self.bn = nn.BatchNorm2d(2 * c_)  # applied to cat(cv2, cv3)
         self.act = nn.LeakyReLU(0.1, inplace=True)
         self.act1 = LIFCell()
-        self.m = SequentialState(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
+        self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
 
     def forward(self, x, state=None):
-        # logger.debug(type(self).__name__)
+        # logger.debug(f"{type(self).__name__} _ {type(x)}")
         if isinstance(x, tuple):
             state = x[1]
             x = x[0]
-        if not isinstance(state, list):
-            state = [None] * 4
 
-        y1, state[0] = self.cv1(x,state[0])
-        y1, state[1] = self.m(y1)
+        y1 = self.cv1(x)
+        y1 = self.m(y1)
         y1 = self.cv3(y1)
         y2 = self.cv2(x)
-        y3, state[2] = self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))), state[2])
-        y3, state[3] = self.act1(y3, state[3])
+        y3 = self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))))
+        y3, state = self.act1(y3, state)
         return  y3, state
 
 

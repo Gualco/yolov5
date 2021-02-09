@@ -27,7 +27,7 @@ except ImportError:
 
 class Detect(nn.Module):
     stride = None  # strides computed during build
-    export = True  # onnx export
+    export = False  # onnx export
 
     def __init__(self, nc=80, anchors=(), ch=()):  # detection layer
         super(Detect, self).__init__()

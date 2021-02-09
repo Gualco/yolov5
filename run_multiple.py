@@ -25,13 +25,18 @@ def main():
         type=int,
         default=3000,
         help='amount of free ram needed')
+    argparser.add_argument(
+        '-p', '--project',
+        type=str,
+        default="x2",
+        help='project postfix displayed in wandb')
     args = argparser.parse_args()
 
     logger.info(vars(args))
-    index = gpu_stat_wait(args.m)
+    index = gpu_stat_wait(args.free_memory)
     while index < 0:
         time.sleep(1)
-        index = gpu_stat_wait(args.ms)
+        index = gpu_stat_wait(args.free_memory)
         os.system(f"export CUDA_VISIBLE_DEVICES={index}")
 
     for method in ["super", "tent", "heaviside", "tanh circ", "heavi_erfc"][:1]:

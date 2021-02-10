@@ -37,8 +37,10 @@ def main():
     while index < 0:
         time.sleep(1)
         index = gpu_stat_wait(args.free_memory)
-        os.system(f"export CUDA_VISIBLE_DEVICES={index}")
 
+    os.system(f"export CUDA_VISIBLE_DEVICES={index}")
+    time.sleep(0.1)
+    
     for method in ["super", "tent", "heaviside", "tanh circ", "heavi_erfc"][:1]:
       for cfg in ["dvs_FCBNCSPC.yaml", "dvs_FCBNCSPC_x2.yaml", "dvs_AllConv.yaml", "dvs_AllConv_x2.yaml", "dvs_F.yaml", "dvs_F_x2.yaml", "dvs_C1_x2.yaml",
                   "dvs_C1_x2.yaml", "dvs_C3.yaml", "dvs_FCC.yaml"][:2]:

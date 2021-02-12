@@ -32,16 +32,13 @@ class SizeEstimator(object):
 
     def get_output_sizes(self):
         '''Run sample input through each layer to get output sizes'''
-        input_ = Variable(torch.FloatTensor(*self.input_size), volatile=True)
-        mods = list(self.model.modules())
-        out_sizes = []
-        for i in range(1, len(mods)):
-            m = mods[i]
-            out = m(input_)
-            out_sizes.append(np.array(out.size()))
-            input_ = out
+        input_ = torch.FloatTensor(*self.input_size)
 
-        self.out_sizes = out_sizes
+        self.model.debug = True
+        self.model(input_)
+        self.model.debug = False
+
+        self.out_sizes = self.model.out_sizes
         return
 
     def calc_param_bits(self):

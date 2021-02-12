@@ -173,6 +173,13 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
     logger.info(model.model.stateful_layers)
 
+    # t, batchsize, h, w, depth
+    model = model.to(torch.device("cpu"))
+    se = SizeEstimator(model, input_size=(5, batch_size, 3, 608,608))
+    memory_needed_bytes, _ = se.estimate_size()
+    logger.info(f"Memory needed: {memory_needed_bytes}")
+    model = model.to(device)
+
     # Resume
     start_epoch, best_fitness = 0, 0.0
     if pretrained:
@@ -267,8 +274,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 'Using %g dataloader workers\nLogging results to %s\n'
                 'Starting training for %g epochs...' % (imgsz, imgsz_test, dataloader.num_workers, save_dir, epochs))
 
-    se = SizeEstimator(model, input_size=(batch_size, 3, 608, 608))
-    print(se.estimate_size())
+    if torch.cuda.device_count() > 0:
+        wait_until_gpu_free(500 + memory_needed_bytes/ 1024 /1024)
 
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()

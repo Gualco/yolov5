@@ -20,6 +20,7 @@ from utils.general import make_divisible, check_file, set_logging
 from utils.torch_utils import time_synchronized, fuse_conv_and_bn, model_info, scale_img, initialize_weights, \
     select_device, copy_attr
 
+import numpy as np
 try:
     import thop  # for FLOPS computation
 except ImportError:
@@ -78,6 +79,8 @@ class Model(nn.Module):
             with open(cfg) as f:
                 self.yaml = yaml.load(f, Loader=yaml.FullLoader)  # model dict
 
+        self.out_sizes = []
+        self.debug = False
         # Define model
         ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
         if nc and nc != self.yaml['nc']:
@@ -170,6 +173,13 @@ class Model(nn.Module):
                 state[i] = s
             else:
                 x = m(x)
+
+            if self.debug:
+                if type(x) is torch.Tensor:
+                    self.out_sizes.append(np.array(x.shape))
+                elif type(x) is list:
+                    for tx in x:
+                        self.out_sizes.append(np.array(tx.shape))
 
             y.append(x if m.i in self.save else None)  # save output
 

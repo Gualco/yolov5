@@ -36,6 +36,11 @@ def main():
         type=str,
         default="data.yaml",
         help='path to data yaml description')
+    argparser.add_argument(
+        '-b', '--batch_size',
+        type=int,
+        default=10,
+        help='batchsize')
     args = argparser.parse_args()
 
     logger.info(vars(args))
@@ -53,7 +58,7 @@ def main():
                   "dvs_C1_x2.yaml", "dvs_C3.yaml", "dvs_FCC.yaml"][:2]:
         for t in ["f", "t"][:1]:
           for vrs in ["f", "t"][:1]:
-            command=f"python train.py --img 416 --batch 13 --epochs 4000 --data {args.data} --weights '' " \
+            command=f"python train.py --img 416 --batch {args.batch_size} --epochs 4000 --data {args.data} --weights '' " \
                         f"--cache --cfg  models/{cfg} --wandblog True --project dvs_{args.project} --name {method} --tauskip {t} --v_resetskip {vrs} --spiking_method {method}"
             logger.info("running:")
             logger.info(command)

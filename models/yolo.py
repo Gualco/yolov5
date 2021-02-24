@@ -20,6 +20,7 @@ from utils.general import make_divisible, check_file, set_logging
 from utils.torch_utils import time_synchronized, fuse_conv_and_bn, model_info, scale_img, initialize_weights, \
     select_device, copy_attr
 
+import numpy as np
 try:
     import thop  # for FLOPS computation
 except ImportError:
@@ -78,6 +79,9 @@ class Model(nn.Module):
             with open(cfg) as f:
                 self.yaml = yaml.load(f, Loader=yaml.FullLoader)  # model dict
 
+        self.out_sizes = []
+
+        self.debug = False
         # Define model
         ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
         if nc and nc != self.yaml['nc']:
@@ -89,17 +93,21 @@ class Model(nn.Module):
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
 
+        # State
+        self.state = [None] * len(self.model)
+
         # Build strides, anchors
         m = self.model[-1]  # Detect()
         if isinstance(m, Detect):
             s = 128  # 2x min stride
             #tried over here
-            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, 1, ch, s, s))])  # forward
+            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
             m.anchors /= m.stride.view(-1, 1, 1)
             check_anchor_order(m)
             self.stride = m.stride
             self._initialize_biases()  # only run once
             # print('Strides: %s' % m.stride.tolist())
+
 
         # Init weights, biases
         initialize_weights(self)
@@ -109,12 +117,8 @@ class Model(nn.Module):
     def forward(self, x_t:torch.tensor, augment=False, profile=False, state=None):
         # x: shape => (t, batchsize, h, w, depth)
         # output = []
-        x = "torch.tensor"
-        state = [None] * len(self.model) if state is None else state
-        for t in range(x_t.size(0)): # x_t.size(0)):
-            x, state = self.forward_standard(x_t[t, :, :, :, :], augment=augment, profile=profile, state=state)
-            # logger.debug(f'forward one batch{len(x)}: [{len(x[0])}, {len(x[0][0])}, {len(x[0][0][0])}]')
-            # output.append(x)
+        state = self.state if state is None else state
+        x, state = self.forward_standard(x_t, augment=augment, profile=profile, state=state)
 
         return x
 
@@ -125,7 +129,8 @@ class Model(nn.Module):
         logger.debug(f'input:  {x.size()}')
         logger.debug(f'{augment}, {profile}')
         '''
-        state = [None] * len(self.model) if state is None else state
+
+        state = self.state if state is None else state
         if augment:
             logger.critical("Is not altered to SNN")
             img_size = x.shape[-2:]  # height, width
@@ -170,6 +175,13 @@ class Model(nn.Module):
                 state[i] = s
             else:
                 x = m(x)
+
+            if self.debug:
+                if type(x) is torch.Tensor:
+                    self.out_sizes.append(np.array(x.shape))
+                elif type(x) is list:
+                    for tx in x:
+                        self.out_sizes.append(np.array(tx.shape))
 
             y.append(x if m.i in self.save else None)  # save output
 

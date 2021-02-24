@@ -7,7 +7,7 @@ import os
 import random
 import shutil
 import time
-from itertools import repeat
+from itertools import repeat, chain
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from threading import Thread
@@ -21,6 +21,7 @@ from tqdm import tqdm
 
 from utils.general import xyxy2xywh, xywh2xyxy, clean_str
 from utils.torch_utils import torch_distributed_zero_first
+from typing import Iterator, Optional, Sequence, List, TypeVar, Generic, Sized
 
 # Parameters
 help_url = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
@@ -71,7 +72,7 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
 
     batch_size = min(batch_size, len(dataset))
     nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, workers])  # number of workers
-    sampler = torch.utils.data.distributed.DistributedSampler(dataset) if rank != -1 else None
+    sampler = SequentialParallelSampler(dataset, batch_size=batch_size)
     loader = torch.utils.data.DataLoader if image_weights else InfiniteDataLoader
     # Use torch.utils.data.DataLoader() if dataset.properties will update during training else InfiniteDataLoader()
     dataloader = loader(dataset,
@@ -81,6 +82,30 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
                         pin_memory=True,
                         collate_fn=LoadImagesAndLabels.collate_fn)
     return dataloader, dataset
+
+class SequentialParallelSampler(torch.utils.data.Sampler[int]):
+    r"""Samples elements sequentially, always in the same order.
+
+    Arguments:
+        data_source (Dataset): dataset to sample from
+    """
+    data_source: Sized
+    batch_size: int
+
+    def __init__(self, data_source, batch_size):
+        self.data_source = data_source
+        print(self.data_source.indices)
+        self.data_source.indices = []
+        runs = int(math.floor(self.data_source.n / batch_size))
+        for i in range(runs):
+            for j in range(batch_size):
+                self.data_source.indices.append(i + runs*j)
+        print(self.data_source.indices)
+    def __iter__(self):
+        return iter(range(len(self.data_source)))
+
+    def __len__(self) -> int:
+        return len(self.data_source)
 
 
 class InfiniteDataLoader(torch.utils.data.dataloader.DataLoader):
@@ -331,7 +356,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
 def img2label_paths(img_paths):
     # Define label paths as a function of image paths
     sa, sb = os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep  # /images/, /labels/ substrings
-    return [x.replace(sa, sb, 1).replace('.' + x.split('.')[-1], '.txt') for x in img_paths]
+    return [[x.replace(sa, sb, 1).replace('.' + x.split('.')[-1], '.txt') for x in img_paths_s] for img_paths_s in img_paths]
 
 
 class LoadImagesAndLabels(Dataset):  # for training/testing
@@ -351,7 +376,9 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             for p in path if isinstance(path, list) else [path]:
                 p = Path(p)  # os-agnostic
                 if p.is_dir():  # dir
-                    f += glob.glob(str(p / '**' / '*.*'), recursive=True)
+                    for d in os.listdir(p):
+                        f += [glob.glob(f"{p}/{d}/**/*.*", recursive=True)]
+                        f[-1].sort()
                 elif p.is_file():  # file
                     with open(p, 'r') as t:
                         t = t.read().strip().splitlines()
@@ -359,17 +386,17 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                         f += [x.replace('./', parent) if x.startswith('./') else x for x in t]  # local to global path
                 else:
                     raise Exception('%s does not exist' % p)
-            self.img_files = sorted([x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in img_formats])
+            self.img_files = [sorted([x.replace('/', os.sep) for x in f_s if x.split('.')[-1].lower() in img_formats]) for f_s in f]
             assert self.img_files, 'No images found'
         except Exception as e:
             raise Exception('Error loading data from %s: %s\nSee %s' % (path, e, help_url))
 
         # Check cache
         self.label_files = img2label_paths(self.img_files)  # labels
-        cache_path = Path(self.label_files[0]).parent.with_suffix('.cache')  # cached labels
+        cache_path = Path(self.label_files[0][0]).parent.parent.with_suffix('.cache')  # cached labels
         if cache_path.is_file():
             cache = torch.load(cache_path)  # load
-            if cache['hash'] != get_hash(self.label_files + self.img_files) or 'results' not in cache:  # changed
+            if cache['hash'] != get_hash( chain(*self.label_files + self.img_files) )or 'results' not in cache:  # changed
                 cache = self.cache_labels(cache_path)  # re-cache
         else:
             cache = self.cache_labels(cache_path)  # cache
@@ -438,7 +465,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         # Cache dataset labels, check images and read shapes
         x = {}  # dict
         nm, nf, ne, nc = 0, 0, 0, 0  # number missing, found, empty, duplicate
-        pbar = tqdm(zip(self.img_files, self.label_files), desc='Scanning images', total=len(self.img_files))
+        pbar = tqdm(zip(chain(*self.img_files), chain(*self.label_files)), desc='Scanning images', total=len(self.img_files)*len(self.img_files[0]))
         for i, (im_file, lb_file) in enumerate(pbar):
             try:
                 # verify images
@@ -474,7 +501,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if nf == 0:
             print(f'WARNING: No labels found in {path}. See {help_url}')
 
-        x['hash'] = get_hash(self.label_files + self.img_files)
+        x['hash'] = get_hash(chain(*self.label_files + self.img_files))
         x['results'] = [nf, nm, ne, nc, i + 1]
         torch.save(x, path)  # save for next time
         logging.info(f"New cache created: {path}")

@@ -113,7 +113,7 @@ def test(data,
             #forward img time scale:
             # adds a Dimenson and repeats all others in it
             #  logger.debug(f'test input: {img.size()} {img.size(1)}')
-            img_repeated = img.unsqueeze(0).repeat(5, 1, 1, 1, 1)
+            # img_repeated = img.unsqueeze(0).repeat(5, 1, 1, 1, 1)
             # logger.debug(f'test repeated input: {img_repeated.size()} {img_repeated.size(1)}')
 
             inf_out, train_out = model(img_repeated, augment=augment)  # inference and training

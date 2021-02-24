@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 from threading import Thread
 from warnings import warn
+import gpustat
 
 from norse.torch.module import LIFParameters    # Stateful sequential layers
 import numpy as np
@@ -36,6 +37,9 @@ from utils.loss import compute_loss
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first
 
+# Estimate Size
+from pytorch_modelsize import SizeEstimator
+
 # logger = logging.getLogger(__name__)
 from loguru import logger
 
@@ -45,6 +49,22 @@ except ImportError:
     wandb = None
     logger.info("Install Weights & Biases for experiment logging via 'pip install wandb' (recommended)")
 
+def get_free_gpu(free_memory:int=3000)->int:
+    gpustats = gpustat.GPUStatCollection.new_query()
+    g_json = gpustats.jsonify()
+    for i, g in enumerate(g_json["gpus"]):
+        if(g["memory.total"]-g["memory.used"] > free_memory):
+            os.environ['CUDA_VISIBLE_DEVICES'] = f'{i}'
+            return i
+        else:
+            # print("fucking fully loaded GPU")
+            pass
+
+    return -1
+
+def wait_until_gpu_free(free_memory:int=3000)->int:
+    while get_free_gpu(free_memory=free_memory) < 0:
+        time.sleep(1)
 
 def train(hyp, opt, device, tb_writer=None, wandb=None):
     logger.info(f'Hyperparameters {hyp}')
@@ -148,7 +168,18 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         logger.info("wandb is disabled")
 
     logger.info(model.model)
+
+    model.info(verbose=True, img_size=opt.img_size)
+
     logger.info(model.model.stateful_layers)
+
+    # Model RAM SIZE Estimator
+    # t, batchsize, h, w, depth
+    # model = model.to(torch.device("cpu"))
+    # se = SizeEstimator(model, input_size=(batch_size, 3, 608,608))
+    # memory_needed_bytes, _ = se.estimate_size()
+    # logger.info(f"Memory needed: {memory_needed_bytes}")
+    # model = model.to(device)
 
     # Resume
     start_epoch, best_fitness = 0, 0.0
@@ -243,6 +274,11 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     logger.info('Image sizes %g train, %g test\n'
                 'Using %g dataloader workers\nLogging results to %s\n'
                 'Starting training for %g epochs...' % (imgsz, imgsz_test, dataloader.num_workers, save_dir, epochs))
+
+    if torch.cuda.device_count() > 0:
+        wait_until_gpu_free(500 + memory_needed_bytes/ 1024 /1024)
+
+    time_image_seq = torch.zeros(5, batch_size, 3, 608,608)
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
 
@@ -262,7 +298,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
         # Update mosaic border
         # b = int(random.uniform(   0.25 * imgsz, 0.75 * imgsz + gs) // gs * gs)
-        # dataset.mosaic_border = [b000000000000000000000000000000000000000000000000000000000000 - imgsz, -b]  # height, width borders
+        # dataset.mosaic_border = [b0 - imgsz, -b]  # height, width borders
 
         mloss = torch.zeros(4, device=device)  # mean losses
         if rank != -1:
@@ -273,6 +309,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             pbar = tqdm(pbar, total=nb)  # progress bar
         optimizer.zero_grad()
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
+            print(paths)
             ni = i + nb * epoch  # number integrated batches (since train start)
             imgs = imgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
 
@@ -298,9 +335,13 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             #forward img time scale:
             # adds a Dimenson and repeats all others in it
             # logger.debug(f'train input: {imgs.size()} {imgs.size(1)}')
-            imgs = imgs.unsqueeze(0).repeat(5, 1, 1, 1, 1)
-            # logger.debug(f'train repeated input shape: {imgs.size()} {imgs.size(1)} [time, batchsize, height, width, colorchannels]')
 
+            # time_image_seq = torch.roll(time_image_seq, shifts=-1, dims=0)
+            # time_image_seq[-1,:,:,:, :] = imgs
+            # imgs = time_image_seq
+
+            # imgs = imgs.unsqueeze(0).repeat(5, 1, 1, 1, 1)
+            # logger.debug(f'train repeated input shape: {imgs.size()} {imgs.size(1)} [time, batchsize, height, width, colorchannels]')
             # Forward
             with amp.autocast(enabled=cuda):
                 pred = model(imgs)  # forward
@@ -467,7 +508,7 @@ if __name__ == '__main__':
     parser.add_argument('--hyp', type=str, default='data/hyp.scratch.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=300)
     parser.add_argument('--batch-size', type=int, default=16, help='total batch size for all GPUs')
-    parser.add_argument('--img-size', nargs='+', type=int, default=[640, 640], help='[train, test] image sizes')
+    parser.add_argument('--img_size', nargs='+', type=int, default=[640, 640], help='[train, test] image sizes')
     parser.add_argument('--rect', action='store_true', help='rectangular training')
     parser.add_argument('--resume', nargs='?', const=True, default=False, help='resume most recent training')
     parser.add_argument('--nosave', action='store_true', help='only save final checkpoint')
@@ -505,7 +546,6 @@ if __name__ == '__main__':
         check_git_status()
 
     #LIFPa
-    # little hack to fast access the spiking hyperparams in common
     models.common.LIFPa = LIFParameters(
         tau_syn_inv=torch.as_tensor(1.0 / 5e-3),  # maybe disable it one run
         tau_mem_inv=torch.as_tensor(1.0 / 1e-2),

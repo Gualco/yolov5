@@ -173,13 +173,16 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
     logger.info(model.model.stateful_layers)
 
+
     # Model RAM SIZE Estimator
+    memory_needed_bytes = 3000
     # t, batchsize, h, w, depth
     # model = model.to(torch.device("cpu"))
     # se = SizeEstimator(model, input_size=(batch_size, 3, 608,608))
     # memory_needed_bytes, _ = se.estimate_size()
     # logger.info(f"Memory needed: {memory_needed_bytes}")
     # model = model.to(device)
+
 
     # Resume
     start_epoch, best_fitness = 0, 0.0
@@ -278,7 +281,9 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     if torch.cuda.device_count() > 0:
         wait_until_gpu_free(500 + memory_needed_bytes/ 1024 /1024)
 
-    time_image_seq = torch.zeros(5, batch_size, 3, 608,608)
+
+    #time_image_seq = torch.zeros(5, batch_size, 3, 608,608)
+
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
 

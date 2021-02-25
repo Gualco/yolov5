@@ -34,9 +34,10 @@ class SizeEstimator(object):
         '''Run sample input through each layer to get output sizes'''
         input_ = torch.FloatTensor(*self.input_size)
 
+        debug = self.model.debug
         self.model.debug = True
         self.model(input_)
-        self.model.debug = False
+        self.model.debug = debug
 
         self.out_sizes = self.model.out_sizes
         return

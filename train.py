@@ -8,6 +8,7 @@ from pathlib import Path
 from threading import Thread
 from warnings import warn
 import gpustat
+from copy import deepcopy
 
 from norse.torch.module import LIFParameters    # Stateful sequential layers
 import numpy as np
@@ -173,7 +174,6 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
     logger.info(model.model.stateful_layers)
 
-
     # Model RAM SIZE Estimator
     memory_needed_bytes = 3000
     # t, batchsize, h, w, depth
@@ -278,15 +278,24 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 'Using %g dataloader workers\nLogging results to %s\n'
                 'Starting training for %g epochs...' % (imgsz, imgsz_test, dataloader.num_workers, save_dir, epochs))
 
+    # Model RAM SIZE Estimator
+    # t, batchsize, h, w, depth
+    model = model.to(torch.device("cpu"))
+    memory_needed_bytes = 3 * 1000 * 1000
+    se = SizeEstimator(model, input_size=(5, batch_size, 3, 608,608))
+    memory_needed_bytes, _ = se.estimate_size()
+
+    logger.info(f"Memory needed: {memory_needed_bytes}")
+    model = model.to(device)
+
     if torch.cuda.device_count() > 0:
         wait_until_gpu_free(500 + memory_needed_bytes/ 1024 /1024)
 
 
-    #time_image_seq = torch.zeros(5, batch_size, 3, 608,608)
-
+    time_image_seq = torch.zeros(5, batch_size, 3, 608, 608)
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
-
+        state = None
         # Update image weights (optional)
         if opt.image_weights:
             # Generate indices
@@ -303,7 +312,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
         # Update mosaic border
         # b = int(random.uniform(   0.25 * imgsz, 0.75 * imgsz + gs) // gs * gs)
-        # dataset.mosaic_border = [b0 - imgsz, -b]  # height, width borders
+        # dataset.mosaic_border = [b - imgsz, -b]  # height, width borders
 
         mloss = torch.zeros(4, device=device)  # mean losses
         if rank != -1:
@@ -340,6 +349,12 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             #forward img time scale:
             # adds a Dimenson and repeats all others in it
             # logger.debug(f'train input: {imgs.size()} {imgs.size(1)}')
+            time_image_seq = torch.roll(time_image_seq, shifts=-1, dims=0)
+            time_image_seq[-1, :, :, :, :] = imgs
+            imgs = time_image_seq
+
+            # imgs = imgs.unsqueeze(0).repeat(5, 1, 1, 1, 1)
+            # logger.debug(f'train repeated input shape: {imgs.size()} {imgs.size(1)} [time, batchsize, height, width, colorchannels]')
 
             # time_image_seq = torch.roll(time_image_seq, shifts=-1, dims=0)
             # time_image_seq[-1,:,:,:, :] = imgs
@@ -380,7 +395,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 # Plot
                 if plots and ni < 3:
                     f = save_dir / f'train_batch{ni}.jpg'  # filename
-                    Thread(target=plot_images, args=(imgs[0,:,:,:,:], targets, paths, f), daemon=True).start()
+                    Thread(target=plot_images, args=(imgs[-1,:,:,:,:], targets, paths, f), daemon=True).start()
                     # if tb_writer:
                     #     tb_writer.add_image(f, result, dataformats='HWC', global_step=epoch)
                     #     tb_writer.add_graph(model, imgs)  # add model to tensorboard
@@ -542,7 +557,7 @@ if __name__ == '__main__':
     parser.add_argument('--v_resetskip', type=str2bool, nargs='?', const=True, default=False, help='spiking flag')
     opt = parser.parse_args()
 
-    # Set DDP variables
+    # Set DDP variables30000
     opt.total_batch_size = opt.batch_size
     opt.world_size = int(os.environ['WORLD_SIZE']) if 'WORLD_SIZE' in os.environ else 1
     opt.global_rank = int(os.environ['RANK']) if 'RANK' in os.environ else -1

@@ -11,6 +11,7 @@ from itertools import repeat, chain
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from threading import Thread
+from typing import Iterator, Optional, Sequence, List, TypeVar, Generic, Sized
 
 import cv2
 import numpy as np
@@ -72,6 +73,7 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
 
     batch_size = min(batch_size, len(dataset))
     nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, workers])  # number of workers
+    # sampler = torch.utils.data.distributed.DistributedSampler(dataset) if rank != -1 else None
     sampler = SequentialParallelSampler(dataset, batch_size=batch_size)
     loader = torch.utils.data.DataLoader if image_weights else InfiniteDataLoader
     # Use torch.utils.data.DataLoader() if dataset.properties will update during training else InfiniteDataLoader()
@@ -82,6 +84,30 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
                         pin_memory=True,
                         collate_fn=LoadImagesAndLabels.collate_fn)
     return dataloader, dataset
+class SequentialParallelSampler(torch.utils.data.Sampler[int]):
+    r"""Samples elements sequentially, always in the same order.
+
+    Arguments:
+        data_source (Dataset): dataset to sample from
+    """
+    data_source: Sized
+    batch_size: int
+
+    def __init__(self, data_source, batch_size):
+        self.data_source = data_source
+        print(self.data_source.indices)
+        self.data_source.indices = []
+        runs = int(math.floor(self.data_source.n / batch_size))
+        for i in range(runs):
+            for j in range(batch_size):
+                self.data_source.indices.append(i + runs*j)
+        print(self.data_source.indices)
+    def __iter__(self):
+        return iter(range(len(self.data_source)))
+
+    def __len__(self) -> int:
+        return len(self.data_source)
+
 
 class SequentialParallelSampler(torch.utils.data.Sampler[int]):
     r"""Samples elements sequentially, always in the same order.
@@ -356,7 +382,9 @@ class LoadStreams:  # multiple IP or RTSP cameras
 def img2label_paths(img_paths):
     # Define label paths as a function of image paths
     sa, sb = os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep  # /images/, /labels/ substrings
-    return [[x.replace(sa, sb, 1).replace('.' + x.split('.')[-1], '.txt') for x in img_paths_s] for img_paths_s in img_paths]
+    # return [x.replace(sa, sb, 1).replace('.' + x.split('.')[-1], '.txt') for x in img_paths]
+    return [[x.replace(sa, sb, 1).replace('.' + x.split('.')[-1], '.txt') for x in img_paths_s] for img_paths_s in
+            img_paths]
 
 
 class LoadImagesAndLabels(Dataset):  # for training/testing
@@ -465,7 +493,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         # Cache dataset labels, check images and read shapes
         x = {}  # dict
         nm, nf, ne, nc = 0, 0, 0, 0  # number missing, found, empty, duplicate
-        pbar = tqdm(zip(chain(*self.img_files), chain(*self.label_files)), desc='Scanning images', total=len(self.img_files)*len(self.img_files[0]))
+        pbar = tqdm(zip(chain(*self.img_files), chain(*self.label_files)), desc='Scanning images',
+                    total=len(self.img_files) * len(self.img_files[0]))
         for i, (im_file, lb_file) in enumerate(pbar):
             try:
                 # verify images

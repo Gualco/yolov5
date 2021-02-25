@@ -101,7 +101,8 @@ class Model(nn.Module):
         if isinstance(m, Detect):
             s = 128  # 2x min stride
             #tried over here
-            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, ch, s, s))])  # forward
+            # m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, 1, ch, s, s))])  # forward
+            m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, 1, ch, s, s))])  # forward
             m.anchors /= m.stride.view(-1, 1, 1)
             check_anchor_order(m)
             self.stride = m.stride
@@ -114,13 +115,40 @@ class Model(nn.Module):
         self.info()
         logger.info('')
 
+    def print_state(self, state:list=None, comment:str=""):
+        if state is None:
+            state = self.state
+
+        for i,v in enumerate(state):
+            if v is not None:
+                logger.info(f"{comment}{i}: {v.i.shape}")
+
+    def train(self, mode=True):
+        r"""Sets the module in training mode."""
+        self.training = mode
+        for module in self.children():
+            module.train(mode)
+
+        return self
+
+    def eval(self):
+        r"""Sets the module in evaluation mode."""
+        return self.train(False)
+
+
     def forward(self, x_t:torch.tensor, augment=False, profile=False, state=None):
         # x: shape => (t, batchsize, h, w, depth)
         # output = []
-        state = self.state if state is None else state
-        x, state = self.forward_standard(x_t, augment=augment, profile=profile, state=state)
+        state = [None] * len(self.model) if state is None else state
+        for t in range(x_t.size(0)): # x_t.size(0)):
+            x, state = self.forward_standard(x_t[t, :, :, :, :], augment=augment, profile=profile, state=state)
+            # logger.debug(f'forward one batch{len(x)}: [{len(x[0])}, {len(x[0][0])}, {len(x[0][0][0])}]')
+            # output.append(x)
 
         return x
+
+    def forward_state(self, x, augment=False, profile=False, state=None):
+        return self.forward_standard(x, augment=augment, profile=profile, state=state)
 
     def forward_standard(self, x, augment=False, profile=False, state=None):
         # x: shape => (batch_size, h, w, 3)

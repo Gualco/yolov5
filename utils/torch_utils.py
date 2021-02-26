@@ -149,13 +149,17 @@ def sparsity(model):
     return b / a
 
 
-def prune(model, amount=0.3):
+def prune(model, amount=0.3, method:str="l1_unstructured", n:int=1):
     # Prune model to requested global sparsity
     import torch.nn.utils.prune as prune
     print('Pruning model... ', end='')
     for name, m in model.named_modules():
         if isinstance(m, nn.Conv2d):
-            prune.l1_unstructured(m, name='weight', amount=amount)  # prune
+            if method =="l1_unstructured":
+                prune.l1_unstructured(m, name='weight', amount=amount)  # prune
+            elif method == "ln_structured":
+                prune.l1_structured(m, name='weight', amount=amount, n=n)  # prune
+
             prune.remove(m, 'weight')  # make permanent
     print(' %.3g global sparsity' % sparsity(model))
 

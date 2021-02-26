@@ -37,7 +37,8 @@ def test(data,
          save_hybrid=False,  # for hybrid auto-labelling
          save_conf=False,  # save auto-label confidences
          plots=True,
-         log_imgs=0):  # number of logged images
+         log_imgs=0,
+         input_tensor_shape=(5,20,3,608,608)):  # number of logged images
 
     # Initialize/load model and set device
     training = model is not None
@@ -97,7 +98,7 @@ def test(data,
     p, r, f1, mp, mr, map50, map, t0, t1 = 0., 0., 0., 0., 0., 0., 0., 0., 0.
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
-    time_image_seq = torch.zeros(5, batch_size, 3, 608, 608)
+    time_image_seq = torch.zeros(*input_tensor_shape)
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         img = img.to(device, non_blocking=True)
         img = img.half() if half else img.float()  # uint8 to fp16/32

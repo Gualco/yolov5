@@ -269,13 +269,13 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 'Starting training for %g epochs...' % (imgsz, imgsz_test, dataloader.num_workers, save_dir, epochs))
 
     one_batch = next(iter(dataloader))
-    input_tensor = (5, one_batch[0].shape[0], one_batch[0].shape[1], one_batch[0].shape[2], one_batch[0].shape[3])
+    input_tensor_shape = (opt.time_seq_len, one_batch[0].shape[0], one_batch[0].shape[1], one_batch[0].shape[2], one_batch[0].shape[3])
 
     # Model RAM SIZE Estimator
     # t, batchsize, h, w, depth
     model = model.to(torch.device("cpu"))
     memory_needed_bytes = 3 * 1000 * 1000
-    se = SizeEstimator(model, input_size=input_tensor)
+    se = SizeEstimator(model, input_size=input_tensor_shape)
     memory_needed_bytes, _ = se.estimate_size()
 
     logger.info(f"Memory needed: {memory_needed_bytes}")
@@ -285,7 +285,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         wait_until_gpu_free(500 + memory_needed_bytes/ 1024 /1024)
 
 
-    time_image_seq = torch.zeros(*input_tensor).to(device)
+    time_image_seq = torch.zeros(*input_tensor_shape).to(device)
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
         # Update image weights (optional)
@@ -412,7 +412,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                                                  dataloader=testloader,
                                                  save_dir=save_dir,
                                                  plots=plots and final_epoch,
-                                                 log_imgs=opt.log_imgs if wandb else 0)
+                                                 log_imgs=opt.log_imgs if wandb else 0,
+                                                 input_tensor_shape=input_tensor_shape)
 
             # Write
             with open(results_file, 'a') as f:
@@ -548,6 +549,7 @@ if __name__ == '__main__':
     parser.add_argument('--prune_method', type=str, default='l1_unstructured', help='pruning methods: l1_unstructures and ln_structured')
     parser.add_argument('--prune_amount', type=float, default=0.5, help='amount of zero weights')
     parser.add_argument('--prune_norm_number', type=int, default=1, help='which norm should be applied to ln_structured')
+    parser.add_argument('--time_seq_len', type=int, default=5, help='which norm should be applied to ln_structured')
 
     opt = parser.parse_args()
 

@@ -413,7 +413,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                                                  save_dir=save_dir,
                                                  plots=plots and final_epoch,
                                                  log_imgs=opt.log_imgs if wandb else 0,
-                                                 input_tensor_shape=(opt.time_seq_len, total_batch_size, 3, imgsz_test, imgsz_test))
+                                                 time_seq_len=opt.time_seq_len)
 
             # Write
             with open(results_file, 'a') as f:
@@ -490,7 +490,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                                           save_dir=save_dir,
                                           save_json=save_json,
                                           plots=False,
-                                          input_tensor_shape=(opt.time_seq_len, total_batch_size, 3, imgsz_test, imgsz_test))
+                                          time_seq_len=opt.time_seq_len)
 
     else:
         dist.destroy_process_group()

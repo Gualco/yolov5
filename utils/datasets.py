@@ -84,6 +84,7 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
                         pin_memory=True,
                         collate_fn=LoadImagesAndLabels.collate_fn)
     return dataloader, dataset
+
 class SequentialParallelSampler(torch.utils.data.Sampler[int]):
     r"""Samples elements sequentially, always in the same order.
 
@@ -106,32 +107,6 @@ class SequentialParallelSampler(torch.utils.data.Sampler[int]):
 
     def __len__(self) -> int:
         return len(self.data_source)
-
-
-class SequentialParallelSampler(torch.utils.data.Sampler[int]):
-    r"""Samples elements sequentially, always in the same order.
-
-    Arguments:
-        data_source (Dataset): dataset to sample from
-    """
-    data_source: Sized
-    batch_size: int
-
-    def __init__(self, data_source, batch_size):
-        self.data_source = data_source
-        print(self.data_source.indices)
-        self.data_source.indices = []
-        runs = int(math.floor(self.data_source.n / batch_size))
-        for i in range(runs):
-            for j in range(batch_size):
-                self.data_source.indices.append(i + runs*j)
-        print(self.data_source.indices)
-    def __iter__(self):
-        return iter(range(len(self.data_source)))
-
-    def __len__(self) -> int:
-        return len(self.data_source)
-
 
 class InfiniteDataLoader(torch.utils.data.dataloader.DataLoader):
     """ Dataloader that reuses workers

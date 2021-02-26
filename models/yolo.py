@@ -93,9 +93,6 @@ class Model(nn.Module):
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
 
-        # State
-        self.state = [None] * len(self.model)
-
         # Build strides, anchors
         m = self.model[-1]  # Detect()
         if isinstance(m, Detect):
@@ -115,14 +112,6 @@ class Model(nn.Module):
         self.info()
         logger.info('')
 
-    def print_state(self, state:list=None, comment:str=""):
-        if state is None:
-            state = self.state
-
-        for i,v in enumerate(state):
-            if v is not None:
-                logger.info(f"{comment}{i}: {v.i.shape}")
-
     def train(self, mode=True):
         r"""Sets the module in training mode."""
         self.training = mode
@@ -140,15 +129,13 @@ class Model(nn.Module):
         # x: shape => (t, batchsize, h, w, depth)
         # output = []
         state = [None] * len(self.model) if state is None else state
+        x = "dummy tensor"
         for t in range(x_t.size(0)): # x_t.size(0)):
             x, state = self.forward_standard(x_t[t, :, :, :, :], augment=augment, profile=profile, state=state)
             # logger.debug(f'forward one batch{len(x)}: [{len(x[0])}, {len(x[0][0])}, {len(x[0][0][0])}]')
             # output.append(x)
 
         return x
-
-    def forward_state(self, x, augment=False, profile=False, state=None):
-        return self.forward_standard(x, augment=augment, profile=profile, state=state)
 
     def forward_standard(self, x, augment=False, profile=False, state=None):
         # x: shape => (batch_size, h, w, 3)

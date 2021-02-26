@@ -36,7 +36,7 @@ from utils.general import labels_to_class_weights, increment_path, labels_to_ima
 from utils.google_utils import attempt_download
 from utils.loss import compute_loss
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
-from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first
+from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, prune
 
 # Estimate Size
 from pytorch_modelsize import SizeEstimator
@@ -356,12 +356,6 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             # imgs = imgs.unsqueeze(0).repeat(5, 1, 1, 1, 1)
             # logger.debug(f'train repeated input shape: {imgs.size()} {imgs.size(1)} [time, batchsize, height, width, colorchannels]')
 
-            # time_image_seq = torch.roll(time_image_seq, shifts=-1, dims=0)
-            # time_image_seq[-1,:,:,:, :] = imgs
-            # imgs = time_image_seq
-
-            # imgs = imgs.unsqueeze(0).repeat(5, 1, 1, 1, 1)
-            # logger.debug(f'train repeated input shape: {imgs.size()} {imgs.size(1)} [time, batchsize, height, width, colorchannels]')
             # Forward
             with amp.autocast(enabled=cuda):
                 pred = model(imgs)  # forward
@@ -375,6 +369,10 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
             # Backward
             scaler.scale(loss).backward()
+
+            # Prune
+            if opt.prune:
+                prune(model,opt.prune_amount, opt.prune_method, opt.prune_norm_number)
 
             # Optimize
             if ni % accumulate == 0:
@@ -555,6 +553,12 @@ if __name__ == '__main__':
     parser.add_argument('--v_th', type=float, default=0.3, help='spiking hyper parameter')
     parser.add_argument('--tauskip', type=str2bool, nargs='?', const=True, default=False, help='spiking flag')
     parser.add_argument('--v_resetskip', type=str2bool, nargs='?', const=True, default=False, help='spiking flag')
+
+    parser.add_argument('--prune', type=str2bool, default=False, help='if pruninng should be applied while training')
+    parser.add_argument('--prune_method', type=str, default='l1_unstructured', help='pruning methods: l1_unstructures and ln_structured')
+    parser.add_argument('--prune_amount', type=float, default=0.5, help='amount of zero weights')
+    parser.add_argument('--prune_norm_number', type=int, default=1, help='which norm should be applied to ln_structured')
+
     opt = parser.parse_args()
 
     # Set DDP variables30000

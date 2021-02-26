@@ -99,9 +99,11 @@ def test(data,
     loss = torch.zeros(3, device=device)
     jdict, stats, ap, ap_class, wandb_images = [], [], [], [], []
 
+    model = model.to(device=device)
+
     one_batch = next(iter(dataloader))
     input_tensor_shape = (time_seq_len, one_batch[0].shape[0], one_batch[0].shape[1], one_batch[0].shape[2], one_batch[0].shape[3])
-    time_image_seq = torch.zeros(*input_tensor_shape).to(device)
+    time_image_seq = torch.zeros(*input_tensor_shape).to(device=device)
     for batch_i, (img, targets, paths, shapes) in enumerate(tqdm(dataloader, desc=s)):
         img = img.to(device, non_blocking=True)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -122,7 +124,7 @@ def test(data,
             # logger.debug(f'test repeated input: {img_repeated.size()} {img_repeated.size(1)}')
             time_image_seq = torch.roll(time_image_seq, shifts=-1, dims=0)
             time_image_seq[-1, :, :, :, :] = img
-            img = time_image_seq
+            img = time_image_seq.to(device=device).half() if half else time_image_seq.float()
 
             inf_out, train_out = model(img, augment=augment)  # inference and training
             # logger.debug(f'test output: {type(inf_out)}, {type(train_out)}')

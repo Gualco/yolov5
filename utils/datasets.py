@@ -95,13 +95,12 @@ class SequentialParallelSampler(torch.utils.data.Sampler[int]):
 
     def __init__(self, data_source, batch_size):
         self.data_source = data_source
-        print(self.data_source.indices)
         self.data_source.indices = []
         runs = int(math.floor(self.data_source.n / batch_size))
         for i in range(runs):
             for j in range(batch_size):
                 self.data_source.indices.append(i + runs*j)
-        print(self.data_source.indices)
+
     def __iter__(self):
         return iter(range(len(self.data_source)))
 

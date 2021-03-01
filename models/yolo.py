@@ -67,6 +67,15 @@ class Detect(nn.Module):
         yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)])
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
+class Detect_Q(nn.Module):
+
+    def __init__(self, nc=80, anchors=(), ch=()):  # detection layer
+        super(Detect_Q, self).__init__()
+        self.detect = Detect(nc, anchors, ch)
+        self.dequant = torch.quantization.DeQuantStub()
+
+    def forward(self, x):
+        return self.dequant(self.detect(x))
 
 class Model(nn.Module):
     def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None):  # model, input channels, number of classes

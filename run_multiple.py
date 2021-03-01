@@ -53,11 +53,11 @@ def main():
     # os.system(f"export CUDA_VISIBLE_DEVICES={index}")
     time.sleep(0.1)
 
-    for data in [("/home/abaur/data/yolov5_dvs_c80_seq/data.yaml", "models/dvs_F.yaml", 5), ("/home/abaur/data/yolov5_rgb_c50_seq/data.yaml", "models/yolov5_dvs.yaml", 1)]:
+    for data in [("/home/abaur/data/yolov5_dvs_c80_seq/data.yaml", "models/yolov5_cars_quant.yaml", 1), ("/home/abaur/data/yolov5_rgb_c50_seq/data.yaml", "models/yolov5_cars.yaml", 1)][:1]:
       for method in ["l1_unstructured", "ln_structured"]:
-        for pa in [0.1, 0.5, 0.75, 0.9, 0.95]:
-          command = f"python train.py --img 600 --batch 20 --epochs 50 --data {data[0]} --weights '' " \
-                    f"--cache --cfg {data[1]} --wandblog True --project dvs_img_finally_pruning --name {method} --time_seq_len {data[2]} --prune t --prune_amount {pa}"
+        for pa in [0.0, 0.25, 0.5, 0.75, 0.9, 0.95]:
+          command = f"python train.py --img 600 --batch 40 --epochs 25 --data {data[0]} --weights '' " \
+                    f"--cache --cfg {data[1]} --wandblog True --project dvs_img_finally_pruning --name {method}0{str(pa)[2:]} --time_seq_len {data[2]} --prune t --prune_amount {pa}"
 
           if method == "l1_unstructured":
               logger.info("running:")

@@ -9,6 +9,7 @@ from threading import Thread
 from warnings import warn
 import gpustat
 from copy import deepcopy
+import re
 
 from norse.torch.module import LIFParameters    # Stateful sequential layers
 import numpy as np
@@ -286,6 +287,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
 
     time_image_seq = torch.zeros(*input_tensor_shape).to(device)
+    # time_paths = torch.zeros(opt.time_seq_len, batch_size)
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
         # Update image weights (optional)
@@ -315,6 +317,10 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             pbar = tqdm(pbar, total=nb)  # progress bar
         optimizer.zero_grad()
         for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
+            # imgs_ids = torch.zeros(batch_size)
+            # for ep, pa in enumerate(paths):
+            #     print(ep, pa)
+            #     imgs_ids[ep] = int(re.search(r'_(\d+)_dvs', pa).group(1))
             ni = i + nb * epoch  # number integrated batches (since train start)
             imgs = imgs.to(device, non_blocking=True).float() / 255.0  # uint8 to float32, 0-255 to 0.0-1.0
 
@@ -343,6 +349,11 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             time_image_seq = torch.roll(time_image_seq, shifts=-1, dims=0)
             time_image_seq[-1, :, :, :, :] = imgs
             imgs = time_image_seq.to(device)
+
+            # time_paths = torch.roll(time_paths, shifts=-1, dims=0)
+            # time_paths[-1, :] = imgs_ids
+
+            print(time_paths)
             # imgs = imgs.unsqueeze(0).repeat(5, 1, 1, 1, 1)
             # logger.debug(f'train repeated input shape: {imgs.size()} {imgs.size(1)} [time, batchsize, height, width, colorchannels]')
 

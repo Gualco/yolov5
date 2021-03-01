@@ -124,9 +124,9 @@ def test(data,
             # logger.debug(f'test repeated input: {img_repeated.size()} {img_repeated.size(1)}')
             time_image_seq = torch.roll(time_image_seq, shifts=-1, dims=0)
             time_image_seq[-1, :, :, :, :] = img
-            img = time_image_seq.to(device=device).half() if half else time_image_seq.float()
+            imgs = time_image_seq.to(device=device).half() if half else time_image_seq.float()
 
-            inf_out, train_out = model(img, augment=augment)  # inference and training
+            inf_out, train_out = model(imgs, augment=augment)  # inference and training
             # logger.debug(f'test output: {type(inf_out)}, {type(train_out)}')
             # logger.debug(f'test output: {inf_out.size()}, [{len(train_out[0])}, {len(train_out[0][0])}, {len(train_out[0][0][0])}]')
 

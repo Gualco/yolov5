@@ -286,10 +286,17 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         wait_until_gpu_free(500 + memory_needed_bytes/ 1024 /1024)
 
 
-    time_image_seq = torch.zeros(*input_tensor_shape).to(device)
+    # time_image_seq = torch.zeros(*input_tensor_shape).to(device)
     # time_paths = torch.zeros(opt.time_seq_len, batch_size)
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
+
+        # Quantization
+        if opt.quant:
+            model.qconfig = torch.quantization.get_default_qat_qconfig('fbgemm')
+            model = torch.quantization.fuse_modules(model, [['conv', 'bn', 'relu']])
+            model = torch.quantization.prepare_qat(model)
+
         # Update image weights (optional)
         if opt.image_weights:
             # Generate indices
@@ -346,15 +353,15 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             #forward img time scale:
             # adds a Dimenson and repeats all others in it
             # logger.debug(f'train input: {imgs.size()} {imgs.size(1)}')
-            time_image_seq = torch.roll(time_image_seq, shifts=-1, dims=0)
-            time_image_seq[-1, :, :, :, :] = imgs
-            imgs = time_image_seq.to(device)
+            # time_image_seq = torch.roll(time_image_seq, shifts=-1, dims=0)
+            # time_image_seq[-1, :, :, :, :] = imgs
+            # imgs = time_image_seq.to(device)
 
             # time_paths = torch.roll(time_paths, shifts=-1, dims=0)
             # time_paths[-1, :] = imgs_ids
 
-            print(time_paths)
-            # imgs = imgs.unsqueeze(0).repeat(5, 1, 1, 1, 1)
+            # print(time_paths)
+            imgs = imgs.unsqueeze(0).repeat(opt.time_seq_len, 1, 1, 1, 1).to(device)
             # logger.debug(f'train repeated input shape: {imgs.size()} {imgs.size(1)} [time, batchsize, height, width, colorchannels]')
 
             # Forward
@@ -403,6 +410,11 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
             # end batch ------------------------------------------------------------------------------------------------
         # end epoch ----------------------------------------------------------------------------------------------------
+
+        # Quantization
+        if opt.quant:
+            model.eval()
+            model = torch.quantization.convert(model)
 
         # Scheduler
         lr = [x['lr'] for x in optimizer.param_groups]  # for tensorboard
@@ -558,6 +570,7 @@ if __name__ == '__main__':
     parser.add_argument('--v_resetskip', type=str2bool, nargs='?', const=True, default=False, help='spiking flag')
 
     parser.add_argument('--prune', type=str2bool, default=False, help='if pruninng should be applied while training')
+    parser.add_argument('--quant', type=str2bool, default=False, help='turns quantization on')
     parser.add_argument('--prune_method', type=str, default='l1_unstructured', help='pruning methods: l1_unstructures and ln_structured')
     parser.add_argument('--prune_amount', type=float, default=0.5, help='amount of zero weights')
     parser.add_argument('--prune_norm_number', type=int, default=1, help='which norm should be applied to ln_structured')

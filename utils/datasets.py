@@ -7,11 +7,10 @@ import os
 import random
 import shutil
 import time
-from itertools import repeat, chain
+from itertools import repeat
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
 from threading import Thread
-from typing import Iterator, Optional, Sequence, List, TypeVar, Generic, Sized
 
 import cv2
 import numpy as np
@@ -57,7 +56,7 @@ def exif_size(img):
 
 
 def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=False, cache=False, pad=0.0, rect=False,
-                      rank=-1, world_size=1, workers=8, image_weights=False):
+                      rank=-1, world_size=1, workers=8, image_weights=False, sampler=None):
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache
     with torch_distributed_zero_first(rank):
         dataset = LoadImagesAndLabels(path, imgsz, batch_size,
@@ -73,8 +72,10 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
 
     batch_size = min(batch_size, len(dataset))
     nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, workers])  # number of workers
-    # sampler = torch.utils.data.distributed.DistributedSampler(dataset) if rank != -1 else None
-    sampler = SequentialParallelSampler(dataset, batch_size=batch_size)
+    if sampler is None:
+        sampler = torch.utils.data.distributed.DistributedSampler(dataset) if rank != -1 else None
+    else:
+        sampler = SequentialParallelSampler(data_source=dataset, batch_size=batch_size)
     loader = torch.utils.data.DataLoader if image_weights else InfiniteDataLoader
     # Use torch.utils.data.DataLoader() if dataset.properties will update during training else InfiniteDataLoader()
     dataloader = loader(dataset,
@@ -86,27 +87,27 @@ def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=Fa
     return dataloader, dataset
 
 class SequentialParallelSampler(torch.utils.data.Sampler[int]):
-    r"""Samples elements sequentially, always in the same order.
+   r"""Samples elements sequentially, always in the same order.
 
-    Arguments:
-        data_source (Dataset): dataset to sample from
-    """
-    data_source: Sized
-    batch_size: int
+   Arguments:
+       data_source (Dataset): dataset to sample from
+   """
+   data_source: Sized
+   batch_size: int
 
-    def __init__(self, data_source, batch_size):
-        self.data_source = data_source
-        self.data_source.indices = []
-        runs = int(math.floor(self.data_source.n / batch_size))
-        for i in range(runs):
-            for j in range(batch_size):
-                self.data_source.indices.append(i + runs*j)
+   def __init__(self, data_source, batch_size):
+       self.data_source = data_source
+       self.data_source.indices = []
+       runs = int(math.floor(self.data_source.n / batch_size))
+       for i in range(runs):
+           for j in range(batch_size):
+               self.data_source.indices.append(i + runs*j)
 
-    def __iter__(self):
-        return iter(range(len(self.data_source)))
+   def __iter__(self):
+       return iter(range(len(self.data_source)))
 
-    def __len__(self) -> int:
-        return len(self.data_source)
+   def __len__(self) -> int:
+       return len(self.data_source)
 
 class InfiniteDataLoader(torch.utils.data.dataloader.DataLoader):
     """ Dataloader that reuses workers
@@ -283,7 +284,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
     def __init__(self, sources='streams.txt', img_size=640):
         self.mode = 'stream'
         self.img_size = img_size
-        self.frame = 0
+
         if os.path.isfile(sources):
             with open(sources, 'r') as f:
                 sources = [x.strip() for x in f.read().strip().splitlines() if len(x.strip())]
@@ -317,7 +318,6 @@ class LoadStreams:  # multiple IP or RTSP cameras
         # Read next stream frame in a daemon thread
         n = 0
         while cap.isOpened():
-            self.frame += 1
             n += 1
             # _, self.imgs[index] = cap.read()
             cap.grab()
@@ -356,9 +356,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
 def img2label_paths(img_paths):
     # Define label paths as a function of image paths
     sa, sb = os.sep + 'images' + os.sep, os.sep + 'labels' + os.sep  # /images/, /labels/ substrings
-    # return [x.replace(sa, sb, 1).replace('.' + x.split('.')[-1], '.txt') for x in img_paths]
-    return [[x.replace(sa, sb, 1).replace('.' + x.split('.')[-1], '.txt') for x in img_paths_s] for img_paths_s in
-            img_paths]
+    return [x.replace(sa, sb, 1).replace('.' + x.split('.')[-1], '.txt') for x in img_paths]
 
 
 class LoadImagesAndLabels(Dataset):  # for training/testing
@@ -378,9 +376,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             for p in path if isinstance(path, list) else [path]:
                 p = Path(p)  # os-agnostic
                 if p.is_dir():  # dir
-                    for d in os.listdir(p):
-                        f += [glob.glob(f"{p}/{d}/**/*.*", recursive=True)]
-                        f[-1].sort()
+                    f += glob.glob(str(p / '**' / '*.*'), recursive=True)
                 elif p.is_file():  # file
                     with open(p, 'r') as t:
                         t = t.read().strip().splitlines()
@@ -388,17 +384,17 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                         f += [x.replace('./', parent) if x.startswith('./') else x for x in t]  # local to global path
                 else:
                     raise Exception('%s does not exist' % p)
-            self.img_files = [sorted([x.replace('/', os.sep) for x in f_s if x.split('.')[-1].lower() in img_formats]) for f_s in f]
+            self.img_files = sorted([x.replace('/', os.sep) for x in f if x.split('.')[-1].lower() in img_formats])
             assert self.img_files, 'No images found'
         except Exception as e:
             raise Exception('Error loading data from %s: %s\nSee %s' % (path, e, help_url))
 
         # Check cache
         self.label_files = img2label_paths(self.img_files)  # labels
-        cache_path = Path(self.label_files[0][0]).parent.parent.with_suffix('.cache')  # cached labels
+        cache_path = Path(self.label_files[0]).parent.with_suffix('.cache')  # cached labels
         if cache_path.is_file():
             cache = torch.load(cache_path)  # load
-            if cache['hash'] != get_hash( chain(*self.label_files + self.img_files) )or 'results' not in cache:  # changed
+            if cache['hash'] != get_hash(self.label_files + self.img_files) or 'results' not in cache:  # changed
                 cache = self.cache_labels(cache_path)  # re-cache
         else:
             cache = self.cache_labels(cache_path)  # cache
@@ -467,8 +463,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         # Cache dataset labels, check images and read shapes
         x = {}  # dict
         nm, nf, ne, nc = 0, 0, 0, 0  # number missing, found, empty, duplicate
-        pbar = tqdm(zip(chain(*self.img_files), chain(*self.label_files)), desc='Scanning images',
-                    total=len(self.img_files) * len(self.img_files[0]))
+        pbar = tqdm(zip(self.img_files, self.label_files), desc='Scanning images', total=len(self.img_files))
         for i, (im_file, lb_file) in enumerate(pbar):
             try:
                 # verify images
@@ -504,7 +499,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if nf == 0:
             print(f'WARNING: No labels found in {path}. See {help_url}')
 
-        x['hash'] = get_hash(chain(*self.label_files + self.img_files))
+        x['hash'] = get_hash(self.label_files + self.img_files)
         x['results'] = [nf, nm, ne, nc, i + 1]
         torch.save(x, path)  # save for next time
         logging.info(f"New cache created: {path}")

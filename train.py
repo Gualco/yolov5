@@ -294,7 +294,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         # Quantization
         if opt.quant:
             model.qconfig = torch.quantization.get_default_qat_qconfig('fbgemm')
-            model = torch.quantization.fuse_modules(model, [['conv', 'bn', 'relu']])
+            #  skipping fuse
+            # model = torch.quantization.fuse_modules(model, [['conv', 'bn', 'relu']])
             model = torch.quantization.prepare_qat(model)
 
         # Update image weights (optional)

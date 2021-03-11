@@ -53,18 +53,23 @@ def main():
     # os.system(f"export CUDA_VISIBLE_DEVICES={index}")
     time.sleep(0.1)
 
-    for data in [("/home/abaur/data/yolov5_dvs_c80_seq/data.yaml", "models/yolov5_cars_quant.yaml", 1), ("/home/abaur/data/yolov5_rgb_c50_seq/data.yaml", "models/yolov5_cars.yaml", 1)][:1]:
+    for i in range(5):
+     for data in [("/home/abaur/data/yolov5_dvs_c80_seq/data.yaml", "models/yolov5_cars_quant.yaml", 1), ("/home/abaur/data/yolov5_rgb_c50_seq/data.yaml", "models/yolov5_cars.yaml", 1)][1:]:
       for method in ["l1_unstructured", "ln_structured"]:
-        for pa in [0.0, 0.25, 0.5, 0.75, 0.9, 0.95]:
-          command = f"python train.py --img 600 --batch 40 --epochs 25 --data {data[0]} --weights '' " \
-                    f"--cache --cfg {data[1]} --wandblog True --project dvs_img_finally_pruning --name {method}0{str(pa)[2:]} --time_seq_len {data[2]} --prune t --prune_amount {pa}"
+        for pa in [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 0.97, 0.98, 0.995]:
+          command = f"python train.py --img 600 --batch 40 --epochs 30 --data {data[0]} --weights '' " \
+                    f"--cache --cfg {data[1]} --wandblog True --project dvs_img_finally_pruning_2 " \
+                    f"--time_seq_len {data[2]} --prune t --prune_amount {pa} --prune_method {method}"
 
           if method == "l1_unstructured":
+              command += f" --name {method[:7]}0{str(pa)[2:]}"
+
               logger.info("running:")
               logger.info(command)
               os.system(command)
-          elif method== "ln_structured":
-            for pn in [1,2]:
+          elif method == "ln_structured":
+            for pn in [1, 2]:
+                command += f" --name {pn}{method[:7]}0{str(pa)[2:]}"
                 command += f" --prune_norm_number {pn}"
 
                 logger.info("running:")

@@ -308,11 +308,11 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
         elif module is Concat:
             c2 = sum([ch[-1 if x == -1 else x + 1] for x in fromm])
         elif module in [Detect, Detect_Q]:
-            logger.debug(f'{fromm}, {args}')
+            # logger.debug(f'{fromm}, {args}')
             args.append([ch[x + 1] for x in fromm])
             if isinstance(args[1], int):  # number of anchors
                 args[1] = [list(range(args[1] * 2))] * len(fromm)
-            logger.debug(f'{fromm}, {args}')
+            # logger.debug(f'{fromm}, {args}')
         else:
             c2 = ch[fromm]
 

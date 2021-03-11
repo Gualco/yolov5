@@ -40,11 +40,11 @@ class Conv(nn.Module):
         self.act = nn.Hardswish() if act is True else (act if isinstance(act, nn.Module) else nn.Identity())
 
     def forward(self, x):
-        logger.debug(type(self).__name__)
+        # logger.debug(type(self).__name__)
         return self.act(self.bn(self.conv(x)))
 
     def fuseforward(self, x):
-        logger.debug(f'{type(self).__name__} fuse')
+        # logger.debug(f'{type(self).__name__} fuse')
         return self.act(self.conv(x))
 
 
@@ -63,14 +63,14 @@ class Conv_Q(nn.Module):
         self.dequant = torch.quantization.DeQuantStub()
 
     def forward(self, x):
-        logger.debug(type(self).__name__)
+        # logger.debug(type(self).__name__)
         # x = self.quant(x)
         # x = self.act(self.bn(self.conv(x)))
         return self.act(self.convbn(x))
         return self.dequant(x)
 
     def fuseforward(self, x):
-        logger.debug(f'{type(self).__name__} fuse')
+        # logger.debug(f'{type(self).__name__} fuse')
         return self.act(self.convbn(x))
 
 
@@ -99,16 +99,16 @@ class Conv_S(nn.Module):
         self.act = LIFCell(p=lifP, dt=0.001)
 
     def forward(self, input_tensor: torch.Tensor, state: Union[list, None] = None):
-        logger.debug(f'{type(self).__name__}, {self}')
+        # logger.debug(f'{type(self).__name__}, {self}')
         if isinstance(input_tensor, tuple):
             state = input_tensor[1]
             input_tensor = input_tensor[0]
 
-        # # logger.debug(f'{type(input_tensor)}:{input_tensor.shape}, {type(state)}')
+        # # # logger.debug(f'{type(input_tensor)}:{input_tensor.shape}, {type(state)}')
         return self.act(self.bn(self.conv(input_tensor)), state)
 
     def fuseforward(self, x, state: Union[list, None] = None):
-        logger.debug(f'{type(self).__name__} fuse')
+        # logger.debug(f'{type(self).__name__} fuse')
         return self.act(self.conv(x), state)
 
 
@@ -135,7 +135,7 @@ class Bottleneck_S(nn.Module):
         self.add = shortcut and c1 == c2
 
     def forward(self, x, state=None):
-        logger.debug(type(self).__name__)
+        # logger.debug(type(self).__name__)
         if isinstance(x, tuple):
             state = x[1]
             x = x[0]
@@ -160,7 +160,7 @@ class BottleneckCSP(nn.Module):
         self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
 
     def forward(self, x):
-        logger.debug(type(self).__name__)
+        # logger.debug(type(self).__name__)
         y1 = self.cv3(self.m(self.cv1(x)))
         y2 = self.cv2(x)
         return self.cv4(self.act(self.bn(torch.cat((y1, y2), dim=1))))
@@ -181,7 +181,7 @@ class BottleneckCSP_S(nn.Module):
         self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
 
     def forward(self, x, state=None):
-        logger.debug(f"{type(self).__name__} _ {type(x)}")
+        # logger.debug(f"{type(self).__name__} _ {type(x)}")
         if isinstance(x, tuple):
             state = x[1]
             x = x[0]
@@ -207,7 +207,7 @@ class C3(nn.Module):
         # self.m = nn.Sequential(*[CrossConv(c_, c_, 3, 1, g, 1.0, shortcut) for _ in range(n)])
 
     def forward(self, x):
-        logger.debug("c3")
+        # logger.debug("c3")
         return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
 
 class SPP(nn.Module):
@@ -220,7 +220,7 @@ class SPP(nn.Module):
         self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
 
     def forward(self, x):
-        logger.debug(type(self).__name__)
+        # logger.debug(type(self).__name__)
         x = self.cv1(x)
         return self.cv2(torch.cat([x] + [m(x) for m in self.m], 1))
 
@@ -234,7 +234,7 @@ class SPP_S(nn.Module):
         self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
 
     def forward(self, x, state=None):
-        logger.debug(type(self).__name__)
+        # logger.debug(type(self).__name__)
         if isinstance(x, tuple):
             state = x[1]
             x = x[0]
@@ -252,7 +252,7 @@ class Focus(nn.Module):
         self.conv = Conv(c1 * 4, c2, k, s, p, g, act)
 
     def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
-        logger.debug(type(self).__name__)
+        # logger.debug(type(self).__name__)
         return self.conv(torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1))
 
 class Focus_S(nn.Module):
@@ -262,7 +262,7 @@ class Focus_S(nn.Module):
         self.conv = Conv_S(c1 * 4, c2, k, s, p, g, act, lifP)
 
     def forward(self, x, state: Union[list, None] = None):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
-        logger.debug("focus")
+        # logger.debug("focus")
         if isinstance(x, tuple):
             state = x[1]
             x = x[0]
@@ -276,7 +276,7 @@ class Focus_Q(nn.Module):
         self.conv = Conv_Q(c1 * 4, c2, k, s, p, g, act)
 
     def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
-        logger.debug(type(self).__name__)
+        # logger.debug(type(self).__name__)
         x = torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1)
         return self.conv(x)
 
@@ -287,7 +287,7 @@ class Concat(nn.Module):
         self.d = dimension
 
     def forward(self, x):
-        logger.debug(type(self).__name__)
+        # logger.debug(type(self).__name__)
         return torch.cat(x, self.d)
 
 
@@ -301,7 +301,7 @@ class NMS(nn.Module):
         super(NMS, self).__init__()
 
     def forward(self, x):
-        logger.debug("nms")
+        # logger.debug("nms")
         return non_max_suppression(x[0], conf_thres=self.conf, iou_thres=self.iou, classes=self.classes)
 
 

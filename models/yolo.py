@@ -13,7 +13,7 @@ from norse.torch.module import SequentialState    # Stateful sequential layers
 sys.path.append('./')  # to run '$ python *.py' files in subdirectories
 from loguru import logger
 
-from models.common import Conv_S, Focus_S, BottleneckCSP_S, Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, C3, Concat, NMS, autoShape
+from models.common import Conv_S, Conv_Q, Focus_S, Focus_Q, BottleneckCSP_S, Conv, Bottleneck, SPP, DWConv, Focus, BottleneckCSP, C3, Concat, NMS, autoShape
 from models.experimental import MixConv2d, CrossConv
 from utils.autoanchor import check_anchor_order
 from utils.general import make_divisible, check_file, set_logging
@@ -67,19 +67,25 @@ class Detect(nn.Module):
         yv, xv = torch.meshgrid([torch.arange(ny), torch.arange(nx)])
         return torch.stack((xv, yv), 2).view((1, 1, ny, nx, 2)).float()
 
-class Detect_Q(nn.Module):
+class Detect_Q(Detect):
 
-    def __init__(self, nc=80, anchors=(), ch=()):  # detection layer
-        super(Detect_Q, self).__init__()
-        self.detect = Detect(nc, anchors, ch)
+    def __init__(self, nc=80, anchors=(), ch=(), quant=False):  # detection layer
+        super(Detect_Q, self).__init__(nc, anchors, ch)
+        self.quant = quant
         self.dequant = torch.quantization.DeQuantStub()
 
     def forward(self, x):
-        return self.dequant(self.detect(x))
+        if self.quant:
+            return self.dequant(super(Detect_Q, self).forward(x))
+        else:
+            return super(Detect_Q, self).forward(x)
 
 class Model(nn.Module):
-    def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None):  # model, input channels, number of classes
+    def __init__(self, cfg='yolov5s.yaml', ch=3, nc=None, qconfig=None):  # model, input channels, number of classes
         super(Model, self).__init__()
+
+        self.qconfig = qconfig
+
         if isinstance(cfg, dict):
             self.yaml = cfg  # model dict
         else:  # is *.yaml
@@ -97,14 +103,13 @@ class Model(nn.Module):
             logger.info('Overriding model.yaml nc=%g with nc=%g' % (self.yaml['nc'], nc))
             self.yaml['nc'] = nc  # override yaml value
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
-        # self.model, self.save = make_model(ch=[ch])  # model, savelist
 
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
         # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
 
         # Build strides, anchors
         m = self.model[-1]  # Detect()
-        if isinstance(m, Detect):
+        if isinstance(m, Detect) or isinstance(m, Detect_Q):
             s = 128  # 2x min stride
             #tried over here
             # m.stride = torch.tensor([s / x.shape[-2] for x in self.forward(torch.zeros(1, 1, ch, s, s))])  # forward
@@ -269,73 +274,6 @@ class Model(nn.Module):
         model_info(self, verbose, img_size)
 
 
-def make_model(ch=None):
-    if ch is None:
-        ch = [3]
-
-    anchors = [[10, 13, 16, 30, 33, 23],  # P3/8
-               [30, 61, 62, 45, 59, 119],  # P4/16
-               [116, 90, 156, 198, 373, 326]]  # P5/32
-    nc = 1
-    logger.info('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
-    na = (len(anchors[0]) // 2) if isinstance(anchors, list) else anchors  # number of anchors
-    no = na * (nc + 5)  # number of outputs = anchors * (classes + 5)
-
-    layers, save, c2 = [], [], ch[-1]  # layers, savelist, ch out
-
-    # backbone:
-    layers.append(module_extender(Focus_S, [3, 32, 3], 1, -1, 0))  # 0-P1/2
-    layers.append(module_extender(Conv, [32, 64, 3, 2], 1, -1, 1))  # 1-P2/4
-    layers.append(module_extender(BottleneckCSP, [64, 64, 1], 1, -1, 2))
-    layers.append(module_extender(Conv, [64, 128, 3, 2], 1, -1, 3))  # 3-P3/8
-    layers.append(module_extender(BottleneckCSP, [128, 128, 3], 1, -1, 4))
-    layers.append(module_extender(Conv, [128, 256, 3, 2], 1, -1, 5))  # 5-P4/16
-    layers.append(module_extender(BottleneckCSP, [256, 256, 3], 1, -1, 6))
-    layers.append(module_extender(Conv, [256, 512, 3, 2], 1, -1, 7))  # 7-P5/32
-    layers.append(module_extender(SPP, [512, 512, [5, 9, 13]], 1, -1, 8))
-    layers.append(module_extender(BottleneckCSP, [512, 512, 1, False], 1, -1, 9))  # 9
-
-    # head
-    layers.append(module_extender(Conv, [512, 256, 1, 1], 1, -1, 10))
-    layers.append(module_extender(nn.Upsample, [None, 2, 'nearest'], 1, -1, 11))
-    layers.append(module_extender(Concat, [1], 1, [-1, 6], 12))  # cat backbone P4
-    layers.append(module_extender(BottleneckCSP, [512, 256, 1, False], 1, -1, 13))  # 13
-
-    layers.append(module_extender(Conv, [256, 128, 1, 1], 1, -1, 14))
-    layers.append(module_extender(nn.Upsample, [None, 2, 'nearest'], 1, -1, 15))
-    layers.append(module_extender(Concat, [1], 1, [-1, 4], 16))  # cat backbone P3
-    layers.append(module_extender(BottleneckCSP, [256, 128, 1, False], 1, -1, 17))  # 17 (P3/8-small)
-
-    layers.append(module_extender(Conv, [128, 128, 3, 2], 1, -1, 18))
-    layers.append(module_extender(Concat, [1], 1, [-1, 14], 19))  # cat head P4
-    layers.append(module_extender(BottleneckCSP, [256, 256, 1, False], 1, -1, 20))  # 20 (P4/16-medium)
-
-    layers.append(module_extender(Conv, [256, 256, 3, 2], 1, -1, 21))
-    layers.append(module_extender(Concat, [1], 1, [-1, 10], 22))  # cat head P5
-    layers.append(module_extender(BottleneckCSP, [512, 512, 1, False], 1, -1, 23))  # 23 (P5/32-medium)
-
-    layers.append(module_extender(Detect, [2,
-                                           [[10, 13, 16, 30, 33, 23], [30, 61, 62, 45, 59, 119],
-                                            [116, 90, 156, 198, 373, 326]],
-                                           [128, 256, 512]],
-                                  1,
-                                  [17, 20, 23],
-                                  24))  # Detect(P3, P4, P5)
-
-    return SequentialState(*layers), sorted([6, 4, 14, 10, 17, 20, 23])
-
-
-def module_extender(module: callable, args: list, numberr: int, fromm: Union[int,list], i: int):
-    module_ = SequentialState(*[module(*args) for _ in range(numberr)]) if numberr > 1 else module(*args)  # module
-
-    # logger.debug(module_.stateful_layers)
-    t = str(module)[8:-2].replace('__main__.', '')  # module type
-    np = sum([x.numel() for x in module_.parameters()])  # number params
-    module_.i, module_.f, module_.type, module_.np = i, fromm, t, np  # attach index, 'from' index, type, number params
-
-    return module_
-
-
 def parse_model(d, ch):  # model_dict, input_channels(3)
     logger.info('\n%3s%18s%3s%10s  %-40s%-30s' % ('', 'from', 'n', 'params', 'module', 'arguments'))
     anchors, nc, gd, gw = d['anchors'], d['nc'], d['depth_multiple'], d['width_multiple']
@@ -356,7 +294,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 pass
 
         numberr = max(round(numberr * gd), 1) if numberr > 1 else numberr  # depth gain
-        if module in [Conv_S, Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, Focus_S, CrossConv, BottleneckCSP_S, BottleneckCSP, C3]:
+        if module in [Conv_S, Conv_Q, Conv, Bottleneck, SPP, DWConv, MixConv2d, Focus, Focus_S, Focus_Q, CrossConv, BottleneckCSP_S, BottleneckCSP, C3]:
             c1, c2 = ch[fromm], args[0]
 
             c2 = make_divisible(c2 * gw, 8) if c2 != no else c2
@@ -369,7 +307,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             args = [ch[fromm]]
         elif module is Concat:
             c2 = sum([ch[-1 if x == -1 else x + 1] for x in fromm])
-        elif module is Detect:
+        elif module in [Detect, Detect_Q]:
             logger.debug(f'{fromm}, {args}')
             args.append([ch[x + 1] for x in fromm])
             if isinstance(args[1], int):  # number of anchors

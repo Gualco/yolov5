@@ -100,6 +100,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     names = ['item'] if opt.single_cls and len(data_dict['names']) != 1 else data_dict['names']  # class names
     assert len(names) == nc, '%g names found for nc=%g dataset in %s' % (len(names), nc, opt.data)  # check
 
+    # Quantization
+
     # Model
     pretrained = weights.endswith('.pt')
     if pretrained:
@@ -115,7 +117,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         model.load_state_dict(state_dict, strict=False)  # load
         logger.info('Transferred %g/%g items from %s' % (len(state_dict), len(model.state_dict()), weights))  # report
     else:
-        model = Model(opt.cfg, ch=3, nc=nc).to(device)  # create
+        model = Model(opt.cfg, ch=3, nc=nc, qconfig=torch.quantization.get_default_qat_qconfig('fbgemm')).to(device)  # create
+
 
     # Freeze
     freeze = []  # parameter names to freeze (full or partial)
@@ -169,7 +172,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     else:
         logger.info("wandb is disabled")
 
-    logger.info(model.model)
+    # logger.info(model.model)
 
     model.info(verbose=True, img_size=opt.img_size)
 
@@ -283,20 +286,20 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     model = model.to(device)
 
     if torch.cuda.device_count() > 0:
-        wait_until_gpu_free(500 + memory_needed_bytes/ 1024 /1024)
+        wait_until_gpu_free(500 + memory_needed_bytes / 1024 / 1024)
 
+    # Quantization
+    if opt.quant:
+        quant_observer_conf = torch.quantization.get_default_qat_qconfig('fbgemm')
+        quant_observer_conf.reduce_range = True
+        logger.debug("start quantization")
+        model.qconfig = quant_observer_conf
+        model = torch.quantization.prepare_qat(model)
 
     # time_image_seq = torch.zeros(*input_tensor_shape).to(device)
     # time_paths = torch.zeros(opt.time_seq_len, batch_size)
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         model.train()
-
-        # Quantization
-        if opt.quant:
-            model.qconfig = torch.quantization.get_default_qat_qconfig('fbgemm')
-            #  skipping fuse
-            # model = torch.quantization.fuse_modules(model, [['conv', 'bn', 'relu']])
-            model = torch.quantization.prepare_qat(model)
 
         # Update image weights (optional)
         if opt.image_weights:
@@ -381,7 +384,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
             # Prune
             if opt.prune:
-                prune(model,opt.prune_amount, opt.prune_method, opt.prune_norm_number)
+                prune(model, opt.prune_amount, opt.prune_method, opt.prune_norm_number)
 
             # Optimize
             if ni % accumulate == 0:

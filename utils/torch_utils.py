@@ -158,7 +158,7 @@ def prune(model, amount=0.3, method:str="l1_unstructured", n:int=1):
             if method =="l1_unstructured":
                 prune.l1_unstructured(m, name='weight', amount=amount)  # prune
             elif method == "ln_structured":
-                prune.l1_structured(m, name='weight', amount=amount, n=n)  # prune
+                prune.ln_structured(m, name='weight', amount=amount, n=n)  # prune
 
             prune.remove(m, 'weight')  # make permanent
     # print(' %.3g global sparsity' % sparsity(model))
